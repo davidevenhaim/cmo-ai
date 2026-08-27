@@ -9,7 +9,7 @@ from app.schemas.content import (
     ContentBriefRequest,
     ContentBrandContext,
 )
-from app.adapters.claude import ClaudeAdapter
+from app.adapters.factory import get_llm
 
 CRITIC_SYSTEM_PROMPT = (
     Path(__file__).parent.parent / "prompts" / "critic_system.txt"
@@ -84,10 +84,10 @@ def _build_critic_message(req: ContentCriticRequest) -> str:
 
 class CriticService:
     def __init__(self) -> None:
-        self.claude = ClaudeAdapter()
+        self.llm = get_llm()
 
     def critique(self, req: ContentCriticRequest) -> CriticEvaluation:
         user_message = _build_critic_message(req)
-        raw_text, _ = self.claude.complete(CRITIC_SYSTEM_PROMPT, user_message)
+        raw_text, _ = self.llm.complete(CRITIC_SYSTEM_PROMPT, user_message)
         raw_json = _parse_json_from_response(raw_text)
         return apply_safety_gate(CriticEvaluation(**raw_json))

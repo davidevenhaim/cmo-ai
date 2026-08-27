@@ -1,4 +1,5 @@
 import { OfferPolicyEngine, HARD_LIMITS } from "./offer-policy-engine.service";
+import { CODE_REVENUE_DEFAULTS } from "../settings/settings.defaults";
 
 describe("OfferPolicyEngine", () => {
   let engine: OfferPolicyEngine;
@@ -167,6 +168,23 @@ describe("OfferPolicyEngine", () => {
         estimatedMarginPct: 0.5,
       });
       expect(result.economicsStatus).toBe("COMPLETE");
+    });
+
+    it("uses persisted RevenuePolicy override for max discount", () => {
+      const result = engine.decide(
+        {
+          ...base,
+          abandonmentAgeHours: 24,
+          estimatedMarginPct: 0.5,
+          experimentVariant: "25%",
+        },
+        {
+          ...CODE_REVENUE_DEFAULTS,
+          maxDiscountPct: 8,
+        },
+      );
+      expect(result.type).toBe("PERCENT_DISCOUNT");
+      expect(result.value).toBe(8);
     });
   });
 

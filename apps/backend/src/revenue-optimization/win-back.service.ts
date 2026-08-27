@@ -1,10 +1,8 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "../prisma.service";
-import { REVENUE_POLICY } from "./revenue-policy.config";
+import { RuntimeSettingsService } from "../settings/runtime-settings.service";
 
 const BRAND_ID = "luminesce-brand-001";
-const WIN_BACK_DAYS = REVENUE_POLICY.winBackDays;
-const VIP_LTV_THRESHOLD = REVENUE_POLICY.vipLtvThreshold;
 
 interface CustomerSummary {
   contactId?: string;
@@ -17,16 +15,22 @@ interface CustomerSummary {
 export class WinBackService {
   private readonly logger = new Logger(WinBackService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly settings: RuntimeSettingsService,
+  ) {}
 
   async scanForWinBack(customers: CustomerSummary[]): Promise<number> {
     let created = 0;
-    const cutoff = new Date(Date.now() - WIN_BACK_DAYS * 24 * 60 * 60 * 1000);
+    const policy = this.settings.getRevenueSync();
+    const cutoff = new Date(
+      Date.now() - policy.winBackDays * 24 * 60 * 60 * 1000,
+    );
 
     for (const c of customers) {
       if (c.lastOrderAt >= cutoff) continue;
 
-      const type = c.totalLtv >= VIP_LTV_THRESHOLD ? "VIP" : "WIN_BACK";
+      const type = c.totalLtv >= policy.vipLtvThreshold ? "VIP" : "WIN_BACK";
 
       const existing = await this.prisma.revenueOpportunity.findFirst({
         where: {

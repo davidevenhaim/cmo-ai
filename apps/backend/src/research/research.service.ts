@@ -1,12 +1,13 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "../prisma.service";
 import { BrandService } from "../brand/brand.service";
 import { ResearchPlanService } from "./research-plan.service";
 import { ResearchNormalizerService } from "./research-normalizer.service";
 import { ResearchScoringService } from "./research-scoring.service";
 import { OpportunityService } from "./opportunity.service";
-import { BraveSearchAdapter } from "./providers/brave-search.adapter";
-import { FirecrawlAdapter } from "./providers/firecrawl.adapter";
+import type { SearchProvider } from "./providers/search.provider";
+import type { CrawlProvider } from "./providers/crawl.provider";
+import { CRAWL_PROVIDER, SEARCH_PROVIDER } from "./providers/provider.factory";
 import type { ResearchContext } from "@ai-cmo/contracts";
 
 const BRAND_ID = "luminesce-brand-001";
@@ -26,8 +27,8 @@ export class ResearchService {
     private readonly normalizer: ResearchNormalizerService,
     private readonly scoring: ResearchScoringService,
     private readonly opportunityService: OpportunityService,
-    private readonly searchAdapter: BraveSearchAdapter,
-    private readonly crawlAdapter: FirecrawlAdapter,
+    @Inject(SEARCH_PROVIDER) private readonly searchAdapter: SearchProvider,
+    @Inject(CRAWL_PROVIDER) private readonly crawlAdapter: CrawlProvider,
   ) {}
 
   async triggerRun(triggeredBy: string): Promise<{
@@ -204,7 +205,7 @@ export class ResearchService {
 
     // --- search results ---
     if (this.searchAdapter.configured) {
-      providers.push("brave");
+      providers.push(this.searchAdapter.name);
       for (const q of plan.queries) {
         try {
           const results = await this.searchAdapter.search(q.query, {
@@ -251,7 +252,7 @@ export class ResearchService {
 
     // --- direct URL crawl ---
     if (this.crawlAdapter.configured && plan.sourceUrls.length > 0) {
-      providers.push("firecrawl");
+      providers.push(this.crawlAdapter.name);
       for (const url of plan.sourceUrls) {
         try {
           const extracted = await this.crawlAdapter.extract(url);

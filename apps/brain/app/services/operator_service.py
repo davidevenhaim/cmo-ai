@@ -2,7 +2,7 @@ import json
 import re
 from pathlib import Path
 
-from app.adapters.claude import ClaudeAdapter
+from app.adapters.factory import get_llm
 from app.schemas.operator import (
     OperatorIntentProposal,
     OperatorIntentRequest,
@@ -61,11 +61,11 @@ def filter_prioritization(
 
 class OperatorService:
     def __init__(self) -> None:
-        self.claude = ClaudeAdapter()
+        self.llm = get_llm()
 
     def prioritize(self, req: OperatorPrioritizeRequest) -> OperatorPrioritization:
         user_message = _build_prioritize_message(req)
-        raw_text, _ = self.claude.complete(PRIORITIZE_SYSTEM_PROMPT, user_message)
+        raw_text, _ = self.llm.complete(PRIORITIZE_SYSTEM_PROMPT, user_message)
         raw_json = _parse_json_from_response(raw_text)
         result = OperatorPrioritization(**raw_json)
         candidate_ids = {a.id for a in req.candidateActions}
@@ -73,7 +73,7 @@ class OperatorService:
 
     def classify_intent(self, req: OperatorIntentRequest) -> OperatorIntentProposal:
         user_message = _build_intent_message(req)
-        raw_text, _ = self.claude.complete(INTENT_SYSTEM_PROMPT, user_message)
+        raw_text, _ = self.llm.complete(INTENT_SYSTEM_PROMPT, user_message)
         raw_json = _parse_json_from_response(raw_text)
         proposal = OperatorIntentProposal(**raw_json)
         if proposal.intent is not None and proposal.intent not in req.supportedIntents:

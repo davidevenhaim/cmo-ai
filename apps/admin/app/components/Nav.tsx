@@ -11,6 +11,7 @@ const LINKS = [
   { href: "/customers", label: "Customers" },
   { href: "/analytics", label: "Analytics" },
   { href: "/connections", label: "Connections" },
+  { href: "/settings", label: "Settings" },
 ];
 
 export default function Nav() {

@@ -7,6 +7,7 @@ import { GrowthModule } from "../growth/growth.module";
 import { MarketIntelligenceModule } from "../market-intelligence/market-intelligence.module";
 import { RevenueOptimizationModule } from "../revenue-optimization/revenue-optimization.module";
 import { MeasurementModule } from "../measurement/measurement.module";
+import { SettingsModule } from "../settings/settings.module";
 import { OperatorBrainClient } from "./operator-brain.client";
 import { OperatorBriefService } from "./operator-brief.service";
 import { OperatorStatusService } from "./operator-status.service";
@@ -23,6 +24,7 @@ import { OperatorController } from "./operator.controller";
     MarketIntelligenceModule,
     RevenueOptimizationModule,
     MeasurementModule,
+    SettingsModule,
   ],
   controllers: [OperatorController],
   providers: [

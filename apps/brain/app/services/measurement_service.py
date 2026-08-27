@@ -2,7 +2,7 @@ import json
 import re
 from pathlib import Path
 
-from app.adapters.claude import ClaudeAdapter
+from app.adapters.factory import get_llm
 from app.schemas.measurement import WeeklyInterpretation, WeeklyReviewRequest
 
 _PROMPTS = Path(__file__).parent.parent / "prompts"
@@ -23,10 +23,10 @@ def _build_weekly_message(req: WeeklyReviewRequest) -> str:
 
 class MeasurementService:
     def __init__(self) -> None:
-        self.claude = ClaudeAdapter()
+        self.llm = get_llm()
 
     def interpret_weekly(self, req: WeeklyReviewRequest) -> WeeklyInterpretation:
         user_message = _build_weekly_message(req)
-        raw_text, _ = self.claude.complete(WEEKLY_SYSTEM_PROMPT, user_message)
+        raw_text, _ = self.llm.complete(WEEKLY_SYSTEM_PROMPT, user_message)
         raw_json = _parse_json_from_response(raw_text)
         return WeeklyInterpretation(**raw_json)

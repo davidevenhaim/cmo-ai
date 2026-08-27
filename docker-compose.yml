@@ -15,6 +15,135 @@ services:
       timeout: 5s
       retries: 5
 
+  searxng:
+    image: searxng/searxng:latest
+    ports:
+      - "8080:8080"
+    environment:
+      SEARXNG_BASE_URL: http://searxng:8080/
+    volumes:
+      - ./docker/searxng:/etc/searxng:rw
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8080/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  crawl4ai:
+    image: unclecode/crawl4ai:latest
+    ports:
+      - "11235:11235"
+    environment:
+      OPENAI_API_KEY: ""
+    shm_size: "1g"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11235/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+
+  browserless:
+    image: ghcr.io/browserless/chromium:latest
+    environment:
+      CONCURRENT: 5
+      TIMEOUT: 30000
+    ports:
+      - "3002:3000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # --- Optional profile: email ---
+  listmonk:
+    profiles: ["email", "full"]
+    image: listmonk/listmonk:latest
+    ports:
+      - "9000:9000"
+    environment:
+      LISTMONK_app__address: "0.0.0.0:9000"
+      LISTMONK_db__host: postgres
+      LISTMONK_db__port: 5432
+      LISTMONK_db__user: postgres
+      LISTMONK_db__password: postgres
+      LISTMONK_db__database: listmonk
+      LISTMONK_db__ssl_mode: disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - listmonk_uploads:/listmonk/uploads
+    command: [sh, -c, "./listmonk --install --prefer-new --yes && ./listmonk"]
+
+  # --- Optional profile: analytics ---
+  umami-db:
+    profiles: ["analytics", "full"]
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: umami
+      POSTGRES_PASSWORD: umami
+      POSTGRES_DB: umami
+    volumes:
+      - umami_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U umami"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  umami:
+    profiles: ["analytics", "full"]
+    image: ghcr.io/umami-software/umami:postgresql-latest
+    ports:
+      - "3003:3000"
+    environment:
+      DATABASE_URL: postgresql://umami:umami@umami-db:5432/umami
+      APP_SECRET: ${UMAMI_APP_SECRET:-replace-me-umami-app-secret}
+    depends_on:
+      umami-db:
+        condition: service_healthy
+
+  # --- Optional profile: watch ---
+  changedetection:
+    profiles: ["watch", "full"]
+    image: dgtlmoon/changedetection.io:latest
+    ports:
+      - "5000:5000"
+    environment:
+      PLAYWRIGHT_DRIVER_URL: ws://browserless:3000
+      BASE_URL: ${CHANGEDETECTION_BASE_URL:-http://localhost:5000}
+    volumes:
+      - changedetection_data:/datastore
+    depends_on:
+      - browserless
+
+  # --- Optional profile: ops ---
+  n8n:
+    profiles: ["ops", "full"]
+    image: n8nio/n8n:latest
+    ports:
+      - "5678:5678"
+    environment:
+      N8N_HOST: ${N8N_HOST:-localhost}
+      N8N_PORT: 5678
+      N8N_PROTOCOL: http
+      WEBHOOK_URL: ${N8N_WEBHOOK_URL:-http://localhost:5678/}
+      GENERIC_TIMEZONE: ${TZ:-UTC}
+    volumes:
+      - n8n_data:/home/node/.n8n
+
+  uptime-kuma:
+    profiles: ["ops", "full"]
+    image: louislam/uptime-kuma:1
+    ports:
+      - "3005:3001"
+    volumes:
+      - uptime_kuma_data:/app/data
+
   backend:
     build:
       context: ./
@@ -24,24 +153,56 @@ services:
     environment:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/ai_cmo
       BRAIN_URL: http://brain:8000
-      CLAUDE_API_KEY: ${CLAUDE_API_KEY}
       NODE_ENV: development
+      LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
+      CLAUDE_API_KEY: ${CLAUDE_API_KEY:-}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_ALLOWED_CHAT_IDS: ${TELEGRAM_ALLOWED_CHAT_IDS:-}
       TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:-}
       TELEGRAM_BRIEF_CRON: ${TELEGRAM_BRIEF_CRON:-0 9 * * *}
+      SEARCH_PROVIDER: ${SEARCH_PROVIDER:-searxng}
+      SEARXNG_BASE_URL: ${SEARXNG_BASE_URL:-http://searxng:8080}
       BRAVE_SEARCH_API_KEY: ${BRAVE_SEARCH_API_KEY:-}
+      CRAWL_PROVIDER: ${CRAWL_PROVIDER:-crawl4ai}
+      CRAWL4AI_BASE_URL: ${CRAWL4AI_BASE_URL:-http://crawl4ai:11235}
+      BROWSERLESS_URL: ${BROWSERLESS_URL:-http://browserless:3000}
+      BROWSERLESS_TOKEN: ${BROWSERLESS_TOKEN:-}
       FIRECRAWL_API_KEY: ${FIRECRAWL_API_KEY:-}
-      RESEARCH_REQUEST_TIMEOUT_MS: ${RESEARCH_REQUEST_TIMEOUT_MS:-10000}
+      RESEARCH_REQUEST_TIMEOUT_MS: ${RESEARCH_REQUEST_TIMEOUT_MS:-30000}
+      LISTMONK_BASE_URL: ${LISTMONK_BASE_URL:-}
+      LISTMONK_USERNAME: ${LISTMONK_USERNAME:-}
+      LISTMONK_PASSWORD: ${LISTMONK_PASSWORD:-}
+      LISTMONK_FROM_EMAIL: ${LISTMONK_FROM_EMAIL:-}
+      LISTMONK_TX_TEMPLATE_ID: ${LISTMONK_TX_TEMPLATE_ID:-}
+      UMAMI_BASE_URL: ${UMAMI_BASE_URL:-}
+      UMAMI_WEBSITE_ID: ${UMAMI_WEBSITE_ID:-}
+      UMAMI_API_TOKEN: ${UMAMI_API_TOKEN:-}
+      UMAMI_USE_MOCK: ${UMAMI_USE_MOCK:-}
+      CHANGEDETECTION_WEBHOOK_TOKEN: ${CHANGEDETECTION_WEBHOOK_TOKEN:-}
       SHOPIFY_SHOP_DOMAIN: ${SHOPIFY_SHOP_DOMAIN:-}
       SHOPIFY_ACCESS_TOKEN: ${SHOPIFY_ACCESS_TOKEN:-}
       SHOPIFY_API_VERSION: ${SHOPIFY_API_VERSION:-2024-10}
+      SHOPIFY_REQUEST_TIMEOUT_MS: ${SHOPIFY_REQUEST_TIMEOUT_MS:-10000}
       SHOPIFY_DEFAULT_PERIOD_DAYS: ${SHOPIFY_DEFAULT_PERIOD_DAYS:-30}
       SHOPIFY_LOW_STOCK_THRESHOLD: ${SHOPIFY_LOW_STOCK_THRESHOLD:-5}
-      SHOPIFY_REQUEST_TIMEOUT_MS: ${SHOPIFY_REQUEST_TIMEOUT_MS:-10000}
+      REVENUE_MAX_DISCOUNT_PCT: ${REVENUE_MAX_DISCOUNT_PCT:-20}
+      REVENUE_MIN_MARGIN_PCT: ${REVENUE_MIN_MARGIN_PCT:-15}
+      REVENUE_MIN_ORDER_VALUE: ${REVENUE_MIN_ORDER_VALUE:-30}
+      REVENUE_MAX_DISCOUNTS_PER_JOURNEY: ${REVENUE_MAX_DISCOUNTS_PER_JOURNEY:-2}
+      REVENUE_MIN_HOURS_BEFORE_DISCOUNT: ${REVENUE_MIN_HOURS_BEFORE_DISCOUNT:-6}
+      REVENUE_RECOVERY_LADDER_HOURS: ${REVENUE_RECOVERY_LADDER_HOURS:-1,6,24,48}
+      REVENUE_WIN_BACK_DAYS: ${REVENUE_WIN_BACK_DAYS:-90}
+      REVENUE_VIP_LTV_THRESHOLD: ${REVENUE_VIP_LTV_THRESHOLD:-500}
+      REVENUE_FREE_SHIPPING_NEAR_FACTOR: ${REVENUE_FREE_SHIPPING_NEAR_FACTOR:-0.8}
     depends_on:
       postgres:
         condition: service_healthy
+      searxng:
+        condition: service_started
+      crawl4ai:
+        condition: service_started
+      browserless:
+        condition: service_started
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
       interval: 10s
@@ -55,8 +216,14 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8000:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
-      CLAUDE_API_KEY: ${CLAUDE_API_KEY}
+      LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-}
+      CLAUDE_API_KEY: ${CLAUDE_API_KEY:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-4-6}
       BACKEND_URL: http://backend:3001
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -80,3 +247,8 @@ services:
 
 volumes:
   postgres_data:
+  listmonk_uploads:
+  umami_db:
+  changedetection_data:
+  n8n_data:
+  uptime_kuma_data:

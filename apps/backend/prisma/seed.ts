@@ -202,6 +202,85 @@ async function main() {
   }
 
   console.log("Seed complete: Luminesce brand data loaded.");
+
+  // Bootstrap runtime settings once — never overwrite persisted owner policy.
+  const commerceBootstrap = {
+    lowStockThreshold: numEnv("SHOPIFY_LOW_STOCK_THRESHOLD", 5),
+    defaultMetricsPeriodDays: numEnv("SHOPIFY_DEFAULT_PERIOD_DAYS", 30),
+  };
+  const revenueBootstrap = {
+    maxDiscountPct: numEnv("REVENUE_MAX_DISCOUNT_PCT", 20),
+    minContributionMarginPct: numEnv("REVENUE_MIN_MARGIN_PCT", 15),
+    minOrderValue: numEnv("REVENUE_MIN_ORDER_VALUE", 30),
+    maxDiscountsPerJourney: Math.floor(
+      numEnv("REVENUE_MAX_DISCOUNTS_PER_JOURNEY", 2),
+    ),
+    minHoursBeforeDiscount: numEnv("REVENUE_MIN_HOURS_BEFORE_DISCOUNT", 6),
+    recoveryLadderHours: listEnv(
+      "REVENUE_RECOVERY_LADDER_HOURS",
+      [1, 6, 24, 48],
+    ),
+    winBackDays: Math.floor(numEnv("REVENUE_WIN_BACK_DAYS", 90)),
+    vipLtvThreshold: numEnv("REVENUE_VIP_LTV_THRESHOLD", 500),
+    freeShippingNearFactor: numEnv("REVENUE_FREE_SHIPPING_NEAR_FACTOR", 0.8),
+  };
+
+  const existingCommerce = await prisma.commerceSettings.findUnique({
+    where: { brandId: brand.id },
+  });
+  if (!existingCommerce) {
+    await prisma.commerceSettings.create({
+      data: { brandId: brand.id, ...commerceBootstrap },
+    });
+    await prisma.settingsAuditLog.create({
+      data: {
+        brandId: brand.id,
+        scope: "COMMERCE",
+        field: "*",
+        previousValue: undefined,
+        newValue: commerceBootstrap,
+        source: "BOOTSTRAP",
+      },
+    });
+  }
+
+  const existingRevenue = await prisma.revenuePolicy.findUnique({
+    where: { brandId: brand.id },
+  });
+  if (!existingRevenue) {
+    await prisma.revenuePolicy.create({
+      data: { brandId: brand.id, ...revenueBootstrap },
+    });
+    await prisma.settingsAuditLog.create({
+      data: {
+        brandId: brand.id,
+        scope: "REVENUE",
+        field: "*",
+        previousValue: undefined,
+        newValue: revenueBootstrap,
+        source: "BOOTSTRAP",
+      },
+    });
+  }
+
+  console.log("Seed complete: runtime CommerceSettings + RevenuePolicy ready.");
+}
+
+function numEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw === "") return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function listEnv(name: string, fallback: number[]): number[] {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const parsed = raw
+    .split(",")
+    .map((s) => Number(s.trim()))
+    .filter((n) => Number.isFinite(n) && n >= 0);
+  return parsed.length > 0 ? parsed : fallback;
 }
 
 main()

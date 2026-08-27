@@ -99,8 +99,8 @@ class TestFilterPrioritization:
 
 
 class TestPrioritizeService:
-    @patch("app.services.operator_service.ClaudeAdapter")
-    def test_prioritize_filters_invented_ids_from_model(self, mock_adapter_cls):
+    @patch("app.services.operator_service.get_llm")
+    def test_prioritize_filters_invented_ids_from_model(self, mock_get_llm):
         mock_adapter = MagicMock()
         mock_adapter.complete.return_value = (
             json.dumps(
@@ -115,7 +115,7 @@ class TestPrioritizeService:
             ),
             {"modelId": "test"},
         )
-        mock_adapter_cls.return_value = mock_adapter
+        mock_get_llm.return_value = mock_adapter
 
         service = OperatorService()
         result = service.prioritize(make_prioritize_request())
@@ -123,21 +123,21 @@ class TestPrioritizeService:
         assert result.headline == "Focus on recovery"
         assert [p.id for p in result.prioritized] == ["act-1"]
 
-    @patch("app.services.operator_service.ClaudeAdapter")
-    def test_prioritize_rejects_malformed_response(self, mock_adapter_cls):
+    @patch("app.services.operator_service.get_llm")
+    def test_prioritize_rejects_malformed_response(self, mock_get_llm):
         mock_adapter = MagicMock()
         mock_adapter.complete.return_value = (
             json.dumps({"headline": "only headline"}),
             {"modelId": "test"},
         )
-        mock_adapter_cls.return_value = mock_adapter
+        mock_get_llm.return_value = mock_adapter
 
         service = OperatorService()
         with pytest.raises(ValidationError):
             service.prioritize(make_prioritize_request())
 
-    @patch("app.services.operator_service.ClaudeAdapter")
-    def test_prioritize_strips_markdown_fences(self, mock_adapter_cls):
+    @patch("app.services.operator_service.get_llm")
+    def test_prioritize_strips_markdown_fences(self, mock_get_llm):
         mock_adapter = MagicMock()
         payload = {
             "headline": "h",
@@ -148,7 +148,7 @@ class TestPrioritizeService:
             f"```json\n{json.dumps(payload)}\n```",
             {"modelId": "test"},
         )
-        mock_adapter_cls.return_value = mock_adapter
+        mock_get_llm.return_value = mock_adapter
 
         service = OperatorService()
         result = service.prioritize(make_prioritize_request())
@@ -167,8 +167,8 @@ class TestIntentMessage:
 
 
 class TestIntentClassification:
-    @patch("app.services.operator_service.ClaudeAdapter")
-    def test_valid_intent_passes_through(self, mock_adapter_cls):
+    @patch("app.services.operator_service.get_llm")
+    def test_valid_intent_passes_through(self, mock_get_llm):
         mock_adapter = MagicMock()
         mock_adapter.complete.return_value = (
             json.dumps(
@@ -181,7 +181,7 @@ class TestIntentClassification:
             ),
             {"modelId": "test"},
         )
-        mock_adapter_cls.return_value = mock_adapter
+        mock_get_llm.return_value = mock_adapter
 
         service = OperatorService()
         proposal = service.classify_intent(
@@ -192,8 +192,8 @@ class TestIntentClassification:
         assert proposal.intent == "LIST_ABANDONED"
         assert proposal.confidence == 0.95
 
-    @patch("app.services.operator_service.ClaudeAdapter")
-    def test_invented_intent_is_rejected_never_routed(self, mock_adapter_cls):
+    @patch("app.services.operator_service.get_llm")
+    def test_invented_intent_is_rejected_never_routed(self, mock_get_llm):
         mock_adapter = MagicMock()
         mock_adapter.complete.return_value = (
             json.dumps(
@@ -205,7 +205,7 @@ class TestIntentClassification:
             ),
             {"modelId": "test"},
         )
-        mock_adapter_cls.return_value = mock_adapter
+        mock_get_llm.return_value = mock_adapter
 
         service = OperatorService()
         proposal = service.classify_intent(
@@ -217,8 +217,8 @@ class TestIntentClassification:
         assert proposal.confidence == 0.0
         assert proposal.clarification is not None
 
-    @patch("app.services.operator_service.ClaudeAdapter")
-    def test_null_intent_with_clarification(self, mock_adapter_cls):
+    @patch("app.services.operator_service.get_llm")
+    def test_null_intent_with_clarification(self, mock_get_llm):
         mock_adapter = MagicMock()
         mock_adapter.complete.return_value = (
             json.dumps(
@@ -231,7 +231,7 @@ class TestIntentClassification:
             ),
             {"modelId": "test"},
         )
-        mock_adapter_cls.return_value = mock_adapter
+        mock_get_llm.return_value = mock_adapter
 
         service = OperatorService()
         proposal = service.classify_intent(
@@ -242,11 +242,11 @@ class TestIntentClassification:
         assert proposal.intent is None
         assert proposal.clarification == "I can list drafts or analyze sales."
 
-    @patch("app.services.operator_service.ClaudeAdapter")
-    def test_malformed_intent_json_raises(self, mock_adapter_cls):
+    @patch("app.services.operator_service.get_llm")
+    def test_malformed_intent_json_raises(self, mock_get_llm):
         mock_adapter = MagicMock()
         mock_adapter.complete.return_value = ("not json at all", {"modelId": "test"})
-        mock_adapter_cls.return_value = mock_adapter
+        mock_get_llm.return_value = mock_adapter
 
         service = OperatorService()
         with pytest.raises(json.JSONDecodeError):

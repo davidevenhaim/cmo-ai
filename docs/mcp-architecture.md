@@ -50,6 +50,23 @@ Shopify Webhooks (future) ──────────────────
 Shopify MCP (optional) ──────────────────────────────────────────────┘
 ```
 
+## Docker MCP Toolkit (optional development)
+
+Docker MCP Toolkit / browser MCP tools may be used by developers for **exploration**
+(e.g. inspecting a page while debugging). They are **not** the authoritative
+research ingestion path.
+
+Authoritative research path remains:
+
+```
+SEARCH / CRAWL → Nest adapter → normalize → sanitize → persist
+  → bounded untrusted evidence → brain
+```
+
+Product correctness must never depend on an LLM deciding to call MCP tools.
+If MCP/browser is integrated into runtime later, it must still go through a
+Nest-owned adapter and the same persistence / trust boundaries.
+
 ## Why this separation matters
 
 Claude must never be the gatekeeper for Shopify data. If the Claude API is

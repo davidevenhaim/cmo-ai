@@ -5,7 +5,7 @@ from pathlib import Path
 
 from app.schemas.brand import BrandContext
 from app.schemas.decisions import CmoRunResult, CmoDecision, DecisionType
-from app.adapters.claude import ClaudeAdapter
+from app.adapters.factory import get_llm
 
 
 SYSTEM_PROMPT = (Path(__file__).parent.parent / "prompts" / "cmo_system.txt").read_text()
@@ -152,12 +152,12 @@ def _parse_decision_payload(raw: dict) -> CmoDecision:
 
 class CmoService:
     def __init__(self):
-        self.claude = ClaudeAdapter()
+        self.llm = get_llm()
 
     def run(self, context: BrandContext) -> CmoRunResult:
         user_message = _build_user_message(context)
         start = time.time()
-        raw_text, meta = self.claude.complete(SYSTEM_PROMPT, user_message)
+        raw_text, meta = self.llm.complete(SYSTEM_PROMPT, user_message)
         duration_ms = int((time.time() - start) * 1000)
 
         raw_json = _parse_json_from_response(raw_text)

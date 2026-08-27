@@ -1,5 +1,4 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { ConfigService } from "@nestjs/config";
 import { PrismaService } from "../prisma.service";
 import { ShopifyGraphqlAdapter } from "./shopify-graphql.adapter";
 import {
@@ -9,6 +8,7 @@ import {
 } from "./shopify-normalizer";
 import { CommerceContextSchema } from "@ai-cmo/contracts";
 import type { CommerceContext } from "@ai-cmo/contracts";
+import { RuntimeSettingsService } from "../settings/runtime-settings.service";
 
 const BRAND_ID = "luminesce-brand-001";
 
@@ -19,7 +19,7 @@ export class ShopifyService {
   constructor(
     private readonly adapter: ShopifyGraphqlAdapter,
     private readonly prisma: PrismaService,
-    private readonly config: ConfigService,
+    private readonly settings: RuntimeSettingsService,
   ) {}
 
   async getCommerceContext(): Promise<CommerceContext> {
@@ -55,12 +55,9 @@ export class ShopifyService {
   }
 
   private async fetchAndPersist(): Promise<CommerceContext> {
-    const periodDays = parseInt(
-      this.config.get<string>("SHOPIFY_DEFAULT_PERIOD_DAYS") ?? "30",
-    );
-    const lowStockThreshold = parseInt(
-      this.config.get<string>("SHOPIFY_LOW_STOCK_THRESHOLD") ?? "5",
-    );
+    const commerce = this.settings.getCommerceSync();
+    const periodDays = commerce.defaultMetricsPeriodDays;
+    const lowStockThreshold = commerce.lowStockThreshold;
 
     const periodEnd = new Date();
     const periodStart = new Date(

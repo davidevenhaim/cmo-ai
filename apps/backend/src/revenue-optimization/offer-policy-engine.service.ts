@@ -1,5 +1,7 @@
-import { Injectable } from "@nestjs/common";
-import { REVENUE_POLICY } from "./revenue-policy.config";
+import { Injectable, Optional } from "@nestjs/common";
+import type { RevenuePolicy } from "@ai-cmo/contracts";
+import { RuntimeSettingsService } from "../settings/runtime-settings.service";
+import { CODE_REVENUE_DEFAULTS } from "../settings/settings.defaults";
 
 export interface OfferInput {
   cartValue: number;
@@ -30,19 +32,31 @@ export interface OfferDecision {
   economicsStatus: "COMPLETE" | "INCOMPLETE";
 }
 
-// Hard limits — cannot be overridden by Claude or experiment variants.
-// Values come from RevenuePolicy (env-configurable, sensible defaults).
-export const HARD_LIMITS = {
-  MAX_DISCOUNT_PCT: REVENUE_POLICY.maxDiscountPct,
-  MIN_CONTRIBUTION_MARGIN_PCT: REVENUE_POLICY.minContributionMarginPct,
-  MIN_ORDER_VALUE: REVENUE_POLICY.minOrderValue,
-  MAX_DISCOUNTS_PER_JOURNEY: REVENUE_POLICY.maxDiscountsPerJourney,
-  MIN_HOURS_BEFORE_DISCOUNT: REVENUE_POLICY.minHoursBeforeDiscount,
-} as const;
+/** Snapshot of hard limits derived from authoritative RevenuePolicy. */
+export function hardLimitsFrom(policy: RevenuePolicy) {
+  return {
+    MAX_DISCOUNT_PCT: policy.maxDiscountPct,
+    MIN_CONTRIBUTION_MARGIN_PCT: policy.minContributionMarginPct,
+    MIN_ORDER_VALUE: policy.minOrderValue,
+    MAX_DISCOUNTS_PER_JOURNEY: policy.maxDiscountsPerJourney,
+    MIN_HOURS_BEFORE_DISCOUNT: policy.minHoursBeforeDiscount,
+  } as const;
+}
+
+/** @deprecated Prefer hardLimitsFrom(policy). Code defaults only. */
+export const HARD_LIMITS = hardLimitsFrom(CODE_REVENUE_DEFAULTS);
 
 @Injectable()
 export class OfferPolicyEngine {
-  decide(input: OfferInput): OfferDecision {
+  constructor(@Optional() private readonly settings?: RuntimeSettingsService) {}
+
+  private policy(override?: RevenuePolicy): RevenuePolicy {
+    return override ?? this.settings?.getRevenueSync() ?? CODE_REVENUE_DEFAULTS;
+  }
+
+  decide(input: OfferInput, policyOverride?: RevenuePolicy): OfferDecision {
+    const policy = this.policy(policyOverride);
+    const limits = hardLimitsFrom(policy);
     const {
       cartValue,
       estimatedMarginPct,
@@ -62,16 +76,16 @@ export class OfferPolicyEngine {
       };
     }
 
-    if (cartValue < HARD_LIMITS.MIN_ORDER_VALUE) {
+    if (cartValue < limits.MIN_ORDER_VALUE) {
       return {
         type: "NO_OFFER",
-        reason: `cart value ${cartValue} below minimum ${HARD_LIMITS.MIN_ORDER_VALUE}`,
+        reason: `cart value ${cartValue} below minimum ${limits.MIN_ORDER_VALUE}`,
         marginsSafe: true,
         economicsStatus: "COMPLETE",
       };
     }
 
-    if (priorDiscountsThisJourney >= HARD_LIMITS.MAX_DISCOUNTS_PER_JOURNEY) {
+    if (priorDiscountsThisJourney >= limits.MAX_DISCOUNTS_PER_JOURNEY) {
       return {
         type: "NO_OFFER",
         reason: "maximum discounts per journey reached",
@@ -83,8 +97,7 @@ export class OfferPolicyEngine {
     const economicsStatus: "COMPLETE" | "INCOMPLETE" =
       estimatedMarginPct !== undefined ? "COMPLETE" : "INCOMPLETE";
 
-    // Step 0–6h: reminder only, no incentive
-    if (abandonmentAgeHours < HARD_LIMITS.MIN_HOURS_BEFORE_DISCOUNT) {
+    if (abandonmentAgeHours < limits.MIN_HOURS_BEFORE_DISCOUNT) {
       return {
         type: "NO_DISCOUNT",
         reason: "too early for discount — send reminder only",
@@ -93,24 +106,20 @@ export class OfferPolicyEngine {
       };
     }
 
-    // Near free-shipping threshold?
     const nearThreshold =
       freeShippingThreshold != null &&
-      cartValue >=
-        freeShippingThreshold *
-          REVENUE_POLICY.freeShippingNearThresholdFactor &&
+      cartValue >= freeShippingThreshold * policy.freeShippingNearFactor &&
       cartValue < freeShippingThreshold;
 
     if (nearThreshold) {
       return {
         type: "FREE_SHIPPING",
-        reason: `cart is within 20% of free-shipping threshold (${freeShippingThreshold})`,
+        reason: `cart is within proximity of free-shipping threshold (${freeShippingThreshold})`,
         marginsSafe: true,
         economicsStatus,
       };
     }
 
-    // Experiment variant override — still subject to hard limits
     let candidateDiscountPct =
       this._candidateDiscountByAge(abandonmentAgeHours);
     if (experimentVariant) {
@@ -127,8 +136,6 @@ export class OfferPolicyEngine {
       };
     }
 
-    // Unknown margin must never authorize a discount — fall back to a
-    // reminder without incentive until economics are complete.
     if (economicsStatus === "INCOMPLETE") {
       return {
         type: "NO_DISCOUNT",
@@ -139,18 +146,14 @@ export class OfferPolicyEngine {
       };
     }
 
-    // Enforce hard cap
-    const clampedPct = Math.min(
-      candidateDiscountPct,
-      HARD_LIMITS.MAX_DISCOUNT_PCT,
-    );
+    const clampedPct = Math.min(candidateDiscountPct, limits.MAX_DISCOUNT_PCT);
 
-    // Validate margin
     const { safe, violation } = this.validateOfferSafe(
       "PERCENT_DISCOUNT",
       clampedPct,
       cartValue,
       estimatedMarginPct,
+      policy,
     );
 
     if (!safe) {
@@ -176,33 +179,32 @@ export class OfferPolicyEngine {
     value: number | undefined,
     cartValue: number,
     estimatedMarginPct?: number,
+    policyOverride?: RevenuePolicy,
   ): { safe: boolean; violation?: string } {
+    const limits = hardLimitsFrom(this.policy(policyOverride));
     if (type === "PERCENT_DISCOUNT" && value !== undefined) {
-      if (value > HARD_LIMITS.MAX_DISCOUNT_PCT) {
+      if (value > limits.MAX_DISCOUNT_PCT) {
         return {
           safe: false,
-          violation: `discount ${value}% exceeds hard limit of ${HARD_LIMITS.MAX_DISCOUNT_PCT}%`,
+          violation: `discount ${value}% exceeds hard limit of ${limits.MAX_DISCOUNT_PCT}%`,
         };
       }
       if (estimatedMarginPct !== undefined) {
         const marginAfterDiscount = estimatedMarginPct - value / 100;
-        if (
-          marginAfterDiscount <
-          HARD_LIMITS.MIN_CONTRIBUTION_MARGIN_PCT / 100
-        ) {
+        if (marginAfterDiscount < limits.MIN_CONTRIBUTION_MARGIN_PCT / 100) {
           return {
             safe: false,
-            violation: `post-discount margin ${(marginAfterDiscount * 100).toFixed(1)}% below floor ${HARD_LIMITS.MIN_CONTRIBUTION_MARGIN_PCT}%`,
+            violation: `post-discount margin ${(marginAfterDiscount * 100).toFixed(1)}% below floor ${limits.MIN_CONTRIBUTION_MARGIN_PCT}%`,
           };
         }
       }
     }
     if (type === "FIXED_DISCOUNT" && value !== undefined) {
       const discountPct = (value / cartValue) * 100;
-      if (discountPct > HARD_LIMITS.MAX_DISCOUNT_PCT) {
+      if (discountPct > limits.MAX_DISCOUNT_PCT) {
         return {
           safe: false,
-          violation: `fixed discount of ${value} is ${discountPct.toFixed(1)}% of cart, exceeding ${HARD_LIMITS.MAX_DISCOUNT_PCT}%`,
+          violation: `fixed discount of ${value} is ${discountPct.toFixed(1)}% of cart, exceeding ${limits.MAX_DISCOUNT_PCT}%`,
         };
       }
     }
@@ -218,7 +220,7 @@ export class OfferPolicyEngine {
   private _variantDiscountPct(variant: string): number | null {
     const match = variant.match(/(\d+)%/);
     if (match) return parseInt(match[1], 10);
-    if (variant.toLowerCase().includes("free_shipping")) return 0; // handled separately
+    if (variant.toLowerCase().includes("free_shipping")) return 0;
     return null;
   }
 }

@@ -56,6 +56,9 @@ model Brand {
   revenueAttributions        RevenueAttribution[]         @relation("BrandRevenueAttributions")
   recommendations            Recommendation[]             @relation("BrandRecommendations")
   performanceObservations    PerformanceObservation[]     @relation("BrandPerformanceObservations")
+  commerceSettings           CommerceSettings?
+  revenuePolicy              RevenuePolicy?
+  settingsAuditLogs          SettingsAuditLog[]
 }
 
 model BrandFact {
@@ -1256,4 +1259,54 @@ model PerformanceObservation {
   @@unique([brandId, provider, subjectType, subjectId, metric, bucketStart])
   @@index([brandId, subjectType, subjectId])
   @@index([brandId, provider, observedAt])
+}
+
+// ---------------------------------------------------------------------------
+// Runtime business configuration (authoritative; env is bootstrap-only)
+// ---------------------------------------------------------------------------
+
+model CommerceSettings {
+  id                       String   @id @default(cuid())
+  brandId                  String   @unique
+  lowStockThreshold        Int      @default(5)
+  defaultMetricsPeriodDays Int      @default(30)
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  brand Brand @relation(fields: [brandId], references: [id])
+}
+
+model RevenuePolicy {
+  id                       String   @id @default(cuid())
+  brandId                  String   @unique
+  maxDiscountPct           Float    @default(20)
+  minContributionMarginPct Float    @default(15)
+  minOrderValue            Float    @default(30)
+  maxDiscountsPerJourney   Int      @default(2)
+  minHoursBeforeDiscount   Float    @default(6)
+  recoveryLadderHours      Json // number[]
+  winBackDays              Int      @default(90)
+  vipLtvThreshold          Float    @default(500)
+  freeShippingNearFactor   Float    @default(0.8)
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  brand Brand @relation(fields: [brandId], references: [id])
+}
+
+model SettingsAuditLog {
+  id            String   @id @default(cuid())
+  brandId       String
+  scope         String // COMMERCE | REVENUE
+  field         String
+  previousValue Json?
+  newValue      Json?
+  source        String // ADMIN_UI | API | BOOTSTRAP
+  actor         String?
+  changedAt     DateTime @default(now())
+
+  brand Brand @relation(fields: [brandId], references: [id])
+
+  @@index([brandId, changedAt])
+  @@index([brandId, scope])
 }

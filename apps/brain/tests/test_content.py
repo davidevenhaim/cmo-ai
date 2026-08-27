@@ -236,10 +236,10 @@ class TestRevisionFeedback:
 class TestChannelNativeSchemas:
     def _service_with_mock(self, mock_response: dict) -> ContentService:
         svc = ContentService.__new__(ContentService)
-        mock_claude = MagicMock()
-        mock_claude.model = "claude-sonnet-4-6"
-        mock_claude.complete.return_value = (json.dumps(mock_response), {})
-        svc.claude = mock_claude
+        mock_llm = MagicMock()
+        mock_llm.model = "claude-sonnet-4-6"
+        mock_llm.complete.return_value = (json.dumps(mock_response), {})
+        svc.llm = mock_llm
         return svc
 
     def test_instagram_post_parsed(self):
@@ -441,9 +441,9 @@ class TestCriticSafetyGate:
             content=content, brief=make_brief(), brandContext=make_brand(),
         )
         svc = CriticService.__new__(CriticService)
-        mock_claude = MagicMock()
-        mock_claude.complete.return_value = (json.dumps(raw), {})
-        svc.claude = mock_claude
+        mock_llm = MagicMock()
+        mock_llm.complete.return_value = (json.dumps(raw), {})
+        svc.llm = mock_llm
 
         result = svc.critique(req)
         assert result.passesReview is False
@@ -502,9 +502,9 @@ class TestContentServiceWithMockedClaude:
             "hashtags": ["#skincare"],
         }
         svc = ContentService.__new__(ContentService)
-        mock_claude = MagicMock()
-        mock_claude.complete.return_value = (json.dumps(raw), {})
-        svc.claude = mock_claude
+        mock_llm = MagicMock()
+        mock_llm.complete.return_value = (json.dumps(raw), {})
+        svc.llm = mock_llm
 
         result = svc.generate(make_request())
         assert isinstance(result, GeneratedContent)
@@ -522,9 +522,9 @@ class TestContentServiceWithMockedClaude:
             content=content, brief=make_brief(), brandContext=make_brand(),
         )
         svc = CriticService.__new__(CriticService)
-        mock_claude = MagicMock()
-        mock_claude.complete.return_value = (json.dumps(raw), {})
-        svc.claude = mock_claude
+        mock_llm = MagicMock()
+        mock_llm.complete.return_value = (json.dumps(raw), {})
+        svc.llm = mock_llm
 
         result = svc.critique(req)
         assert isinstance(result, CriticEvaluation)

@@ -1,10 +1,16 @@
 import { FreeShippingOptimizerService } from "./free-shipping-optimizer.service";
+import { CODE_REVENUE_DEFAULTS } from "../settings/settings.defaults";
 
 const mockPrisma = {
   revenueOpportunity: {
     findFirst: jest.fn().mockResolvedValue(null),
     create: jest.fn().mockResolvedValue({ id: "opp-1" }),
   },
+};
+
+const mockSettings = {
+  getRevenueSync: () => CODE_REVENUE_DEFAULTS,
+  getCommerceSync: jest.fn(),
 };
 
 describe("FreeShippingOptimizerService", () => {
@@ -14,7 +20,10 @@ describe("FreeShippingOptimizerService", () => {
     jest.resetAllMocks();
     mockPrisma.revenueOpportunity.findFirst.mockResolvedValue(null);
     mockPrisma.revenueOpportunity.create.mockResolvedValue({ id: "opp-1" });
-    service = new FreeShippingOptimizerService(mockPrisma as any);
+    service = new FreeShippingOptimizerService(
+      mockPrisma as any,
+      mockSettings as any,
+    );
   });
 
   describe("isNearThreshold", () => {

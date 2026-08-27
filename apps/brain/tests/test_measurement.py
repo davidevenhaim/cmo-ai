@@ -52,8 +52,8 @@ class TestWeeklyRequestSchema:
 
 
 class TestInterpretWeekly:
-    @patch("app.services.measurement_service.ClaudeAdapter")
-    def test_returns_interpretation(self, mock_adapter_cls):
+    @patch("app.services.measurement_service.get_llm")
+    def test_returns_interpretation(self, mock_get_llm):
         mock_adapter = MagicMock()
         mock_adapter.complete.return_value = (
             json.dumps(
@@ -64,7 +64,7 @@ class TestInterpretWeekly:
             ),
             {"modelId": "test"},
         )
-        mock_adapter_cls.return_value = mock_adapter
+        mock_get_llm.return_value = mock_adapter
 
         service = MeasurementService()
         result = service.interpret_weekly(make_request())
@@ -72,52 +72,52 @@ class TestInterpretWeekly:
         assert result.headline == "A steady week with one clear content win."
         assert "outperformed" in result.narrative
 
-    @patch("app.services.measurement_service.ClaudeAdapter")
-    def test_strips_markdown_fences(self, mock_adapter_cls):
+    @patch("app.services.measurement_service.get_llm")
+    def test_strips_markdown_fences(self, mock_get_llm):
         mock_adapter = MagicMock()
         payload = {"headline": "h", "narrative": "n"}
         mock_adapter.complete.return_value = (
             f"```json\n{json.dumps(payload)}\n```",
             {"modelId": "test"},
         )
-        mock_adapter_cls.return_value = mock_adapter
+        mock_get_llm.return_value = mock_adapter
 
         service = MeasurementService()
         result = service.interpret_weekly(make_request())
         assert result.headline == "h"
         assert result.narrative == "n"
 
-    @patch("app.services.measurement_service.ClaudeAdapter")
-    def test_rejects_malformed_response(self, mock_adapter_cls):
+    @patch("app.services.measurement_service.get_llm")
+    def test_rejects_malformed_response(self, mock_get_llm):
         mock_adapter = MagicMock()
         mock_adapter.complete.return_value = (
             json.dumps({"headline": "only headline"}),
             {"modelId": "test"},
         )
-        mock_adapter_cls.return_value = mock_adapter
+        mock_get_llm.return_value = mock_adapter
 
         service = MeasurementService()
         with pytest.raises(ValidationError):
             service.interpret_weekly(make_request())
 
-    @patch("app.services.measurement_service.ClaudeAdapter")
-    def test_non_json_response_raises(self, mock_adapter_cls):
+    @patch("app.services.measurement_service.get_llm")
+    def test_non_json_response_raises(self, mock_get_llm):
         mock_adapter = MagicMock()
         mock_adapter.complete.return_value = ("not json", {"modelId": "test"})
-        mock_adapter_cls.return_value = mock_adapter
+        mock_get_llm.return_value = mock_adapter
 
         service = MeasurementService()
         with pytest.raises(json.JSONDecodeError):
             service.interpret_weekly(make_request())
 
-    @patch("app.services.measurement_service.ClaudeAdapter")
-    def test_sends_system_prompt_and_facts(self, mock_adapter_cls):
+    @patch("app.services.measurement_service.get_llm")
+    def test_sends_system_prompt_and_facts(self, mock_get_llm):
         mock_adapter = MagicMock()
         mock_adapter.complete.return_value = (
             json.dumps({"headline": "h", "narrative": "n"}),
             {"modelId": "test"},
         )
-        mock_adapter_cls.return_value = mock_adapter
+        mock_get_llm.return_value = mock_adapter
 
         service = MeasurementService()
         service.interpret_weekly(make_request())

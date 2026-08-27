@@ -6,8 +6,7 @@ import { ResearchPlanService } from "./research-plan.service";
 import { ResearchNormalizerService } from "./research-normalizer.service";
 import { ResearchScoringService } from "./research-scoring.service";
 import { OpportunityService } from "./opportunity.service";
-import { BraveSearchAdapter } from "./providers/brave-search.adapter";
-import { FirecrawlAdapter } from "./providers/firecrawl.adapter";
+import { CRAWL_PROVIDER, SEARCH_PROVIDER } from "./providers/provider.factory";
 
 const mockBrand = {
   id: "luminesce-brand-001",
@@ -105,8 +104,8 @@ describe("ResearchService", () => {
         { provide: ResearchNormalizerService, useValue: mockNormalizer },
         { provide: ResearchScoringService, useValue: mockScoring },
         { provide: OpportunityService, useValue: mockOpportunityService },
-        { provide: BraveSearchAdapter, useValue: mockSearchAdapter },
-        { provide: FirecrawlAdapter, useValue: mockCrawlAdapter },
+        { provide: SEARCH_PROVIDER, useValue: mockSearchAdapter },
+        { provide: CRAWL_PROVIDER, useValue: mockCrawlAdapter },
       ],
     }).compile();
     service = module.get<ResearchService>(ResearchService);
@@ -130,8 +129,16 @@ describe("ResearchService", () => {
       get: () => true,
       configurable: true,
     });
+    Object.defineProperty(mockSearchAdapter, "name", {
+      value: "searxng",
+      configurable: true,
+    });
     Object.defineProperty(mockCrawlAdapter, "configured", {
       get: () => true,
+      configurable: true,
+    });
+    Object.defineProperty(mockCrawlAdapter, "name", {
+      value: "browser",
       configurable: true,
     });
   });

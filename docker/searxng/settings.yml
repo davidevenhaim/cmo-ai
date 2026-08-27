@@ -1,0 +1,13 @@
+# Minimal SearXNG config for AI CMO research (Nest-owned).
+# JSON format must be enabled for the Nest adapter.
+use_default_settings: true
+
+server:
+  secret_key: "ai-cmo-searxng-dev-change-me"
+  limiter: false
+  image_proxy: false
+
+search:
+  formats:
+    - html
+    - json

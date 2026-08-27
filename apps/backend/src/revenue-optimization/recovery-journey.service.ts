@@ -3,7 +3,7 @@ import { PrismaService } from "../prisma.service";
 import { FrequencyCapService } from "../growth/frequency-cap.service";
 import type { MessagingProvider } from "./providers/messaging.provider";
 import { OfferPolicyEngine } from "./offer-policy-engine.service";
-import { REVENUE_POLICY } from "./revenue-policy.config";
+import { RuntimeSettingsService } from "../settings/runtime-settings.service";
 
 const BRAND_ID = "luminesce-brand-001";
 
@@ -12,14 +12,6 @@ interface JourneyStep {
   delayHours: number;
   channel: string;
 }
-
-const DEFAULT_LADDER: JourneyStep[] = REVENUE_POLICY.recoveryLadderHours.map(
-  (delayHours, i) => ({
-    stepNumber: i + 1,
-    delayHours,
-    channel: "WHATSAPP",
-  }),
-);
 
 type CartInventoryStatus =
   "OK" | "PARTIAL_UNAVAILABLE" | "ALL_UNAVAILABLE" | "UNKNOWN";
@@ -34,7 +26,18 @@ export class RecoveryJourneyService {
     private readonly messaging: MessagingProvider,
     private readonly offerPolicy: OfferPolicyEngine,
     private readonly frequencyCaps: FrequencyCapService,
+    private readonly settings: RuntimeSettingsService,
   ) {}
+
+  private ladder(): JourneyStep[] {
+    return this.settings
+      .getRevenueSync()
+      .recoveryLadderHours.map((delayHours, i) => ({
+        stepNumber: i + 1,
+        delayHours,
+        channel: "WHATSAPP",
+      }));
+  }
 
   async startJourney(
     opportunityId: string,
@@ -86,7 +89,7 @@ export class RecoveryJourneyService {
         opportunityId,
         status: "ACTIVE",
         steps: {
-          create: DEFAULT_LADDER.map((s) => {
+          create: this.ladder().map((s) => {
             const scheduledAt = new Date(
               now.getTime() + s.delayHours * 60 * 60 * 1000,
             );

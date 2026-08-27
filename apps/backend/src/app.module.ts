@@ -19,6 +19,8 @@ import { MarketIntelligenceModule } from "./market-intelligence/market-intellige
 import { RevenueOptimizationModule } from "./revenue-optimization/revenue-optimization.module";
 import { OperatorModule } from "./operator/operator.module";
 import { MeasurementModule } from "./measurement/measurement.module";
+import { SettingsModule } from "./settings/settings.module";
+import { BrowserModule } from "./browser/browser.module";
 import { PrismaService } from "./prisma.service";
 
 @Module({
@@ -27,6 +29,7 @@ import { PrismaService } from "./prisma.service";
     ScheduleModule.forRoot(),
     HttpModule,
     HealthModule,
+    SettingsModule,
     BrandModule,
     BrainModule,
     ApprovalModule,
@@ -43,6 +46,7 @@ import { PrismaService } from "./prisma.service";
     MeasurementModule,
     OperatorModule,
     TelegramModule,
+    BrowserModule,
   ],
   providers: [PrismaService],
   exports: [PrismaService],

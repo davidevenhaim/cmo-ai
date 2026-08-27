@@ -1,5 +1,6 @@
 import { RecoveryJourneyService } from "./recovery-journey.service";
 import { OfferPolicyEngine } from "./offer-policy-engine.service";
+import { CODE_REVENUE_DEFAULTS } from "../settings/settings.defaults";
 
 const mockPrisma = {
   recoveryJourney: {
@@ -46,6 +47,11 @@ const mockFrequencyCaps = {
 };
 
 const realOfferPolicy = new OfferPolicyEngine();
+
+const mockSettings = {
+  getRevenueSync: () => CODE_REVENUE_DEFAULTS,
+  getCommerceSync: jest.fn(),
+};
 
 function makeStep(oppOverrides: Record<string, unknown> = {}) {
   return {
@@ -110,6 +116,7 @@ describe("RecoveryJourneyService", () => {
       mockMessaging as any,
       realOfferPolicy,
       mockFrequencyCaps as any,
+      mockSettings as any,
     );
   });
 

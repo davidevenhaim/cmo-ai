@@ -128,10 +128,10 @@ class TestCmoServiceWithMockedClaude:
         import json
 
         service = CmoService.__new__(CmoService)
-        mock_claude = MagicMock()
-        mock_claude.model = "claude-sonnet-4-6"
-        mock_claude.complete.return_value = (json.dumps(mock_response), {"modelId": "claude-sonnet-4-6"})
-        service.claude = mock_claude
+        mock_llm = MagicMock()
+        mock_llm.model = "claude-sonnet-4-6"
+        mock_llm.complete.return_value = (json.dumps(mock_response), {"modelId": "claude-sonnet-4-6"})
+        service.llm = mock_llm
 
         context = make_brand_context()
         result = service.run(context)
@@ -139,4 +139,4 @@ class TestCmoServiceWithMockedClaude:
         assert result.decisionType == DecisionType.CREATE_CONTENT
         assert result.confidence == 0.88
         assert "fact-001" in result.evidenceRefs
-        mock_claude.complete.assert_called_once()
+        mock_llm.complete.assert_called_once()

@@ -3,6 +3,7 @@ import { Module } from "@nestjs/common";
 import { GrowthModule } from "../growth/growth.module";
 import { PrismaService } from "../prisma.service";
 import { ShopifyModule } from "../shopify/shopify.module";
+import { SettingsModule } from "../settings/settings.module";
 import { BundleService } from "./bundle.service";
 import { FreeShippingOptimizerService } from "./free-shipping-optimizer.service";
 import { NextBestActionService } from "./next-best-action.service";
@@ -27,7 +28,7 @@ const messagingProvider = {
 };
 
 @Module({
-  imports: [HttpModule, GrowthModule, ShopifyModule],
+  imports: [HttpModule, GrowthModule, ShopifyModule, SettingsModule],
   controllers: [RevenueOptimizationController],
   providers: [
     PrismaService,

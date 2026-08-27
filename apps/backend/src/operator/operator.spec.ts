@@ -150,6 +150,23 @@ function mockBriefDeps(overrides?: {
   const experimentMeasurement = {
     evaluateRecent: jest.fn().mockResolvedValue([]),
   };
+  const settings = {
+    getRevenueSync: () => ({
+      maxDiscountPct: 20,
+      minContributionMarginPct: 15,
+      minOrderValue: 30,
+      maxDiscountsPerJourney: 2,
+      minHoursBeforeDiscount: 6,
+      recoveryLadderHours: [1, 6, 24, 48],
+      winBackDays: 90,
+      vipLtvThreshold: 500,
+      freeShippingNearFactor: 0.8,
+    }),
+    getCommerceSync: () => ({
+      lowStockThreshold: 5,
+      defaultMetricsPeriodDays: 30,
+    }),
+  };
   const service = new OperatorBriefService(
     prisma as any,
     shopify.service as any,
@@ -163,6 +180,7 @@ function mockBriefDeps(overrides?: {
     attribution as any,
     recommendations as any,
     experimentMeasurement as any,
+    settings as any,
   );
   return { service, prisma, shopify, brain, recommendations };
 }
@@ -677,13 +695,32 @@ describe("OperatorStatusService", () => {
       get: jest.fn((key: string, def = "") => (opts?.env ?? {})[key] ?? def),
     };
     const adapter = { configured: opts?.shopifyConfigured ?? false };
+    const { of } = require("rxjs");
+    const http = {
+      get: jest.fn().mockReturnValue(
+        of({
+          data: {
+            status: "ok",
+            llm: {
+              provider: "ollama",
+              model: "test",
+              configured: true,
+              reachable: true,
+              lastError: null,
+            },
+          },
+        }),
+      ),
+    };
     return {
       service: new OperatorStatusService(
         prisma as any,
         config as any,
         adapter as any,
+        http as any,
       ),
       prisma,
+      http,
     };
   }
 

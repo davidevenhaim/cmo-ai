@@ -1,6 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "../prisma.service";
-import { REVENUE_POLICY } from "./revenue-policy.config";
+import { RuntimeSettingsService } from "../settings/runtime-settings.service";
 
 const BRAND_ID = "luminesce-brand-001";
 
@@ -17,13 +17,14 @@ interface CartSnapshot {
 export class FreeShippingOptimizerService {
   private readonly logger = new Logger(FreeShippingOptimizerService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly settings: RuntimeSettingsService,
+  ) {}
 
   isNearThreshold(cartValue: number, threshold: number): boolean {
-    return (
-      cartValue >= threshold * REVENUE_POLICY.freeShippingNearThresholdFactor &&
-      cartValue < threshold
-    );
+    const factor = this.settings.getRevenueSync().freeShippingNearFactor;
+    return cartValue >= threshold * factor && cartValue < threshold;
   }
 
   gapToThreshold(cartValue: number, threshold: number): number {

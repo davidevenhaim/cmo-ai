@@ -1,8 +1,8 @@
 import { Test, TestingModule } from "@nestjs/testing";
-import { ConfigService } from "@nestjs/config";
 import { ShopifyService } from "./shopify.service";
 import { ShopifyGraphqlAdapter } from "./shopify-graphql.adapter";
 import { PrismaService } from "../prisma.service";
+import { RuntimeSettingsService } from "../settings/runtime-settings.service";
 
 const now = new Date();
 
@@ -74,14 +74,12 @@ const mockPrisma = {
   },
 };
 
-const mockConfig = {
-  get: jest.fn((key: string) => {
-    const map: Record<string, string> = {
-      SHOPIFY_DEFAULT_PERIOD_DAYS: "30",
-      SHOPIFY_LOW_STOCK_THRESHOLD: "5",
-    };
-    return map[key];
-  }),
+const mockSettings = {
+  getCommerceSync: jest.fn(() => ({
+    lowStockThreshold: 5,
+    defaultMetricsPeriodDays: 30,
+  })),
+  getRevenueSync: jest.fn(),
 };
 
 describe("ShopifyService", () => {
@@ -93,11 +91,15 @@ describe("ShopifyService", () => {
         ShopifyService,
         { provide: ShopifyGraphqlAdapter, useValue: mockAdapter },
         { provide: PrismaService, useValue: mockPrisma },
-        { provide: ConfigService, useValue: mockConfig },
+        { provide: RuntimeSettingsService, useValue: mockSettings },
       ],
     }).compile();
     service = module.get<ShopifyService>(ShopifyService);
     jest.clearAllMocks();
+    mockSettings.getCommerceSync.mockReturnValue({
+      lowStockThreshold: 5,
+      defaultMetricsPeriodDays: 30,
+    });
     mockAdapter.configured = true;
   });
 

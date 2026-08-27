@@ -10,6 +10,7 @@ import { PerformanceIngestionService } from "./performance-ingestion.service";
 import { PERFORMANCE_PROVIDERS } from "./performance-provider.interface";
 import { ShopifyPerformanceProvider } from "./providers/shopify-performance.provider";
 import { Ga4PerformanceProvider } from "./providers/ga4-performance.provider";
+import { UmamiPerformanceProvider } from "./providers/umami-performance.provider";
 import { BaselineService } from "./baseline.service";
 import { ContentOutcomeService } from "./content-outcome.service";
 import { ExperimentMeasurementService } from "./experiment-measurement.service";
@@ -37,13 +38,19 @@ import { MeasurementSchedulerService } from "./measurement-scheduler.service";
     MeasurementSchedulerService,
     ShopifyPerformanceProvider,
     Ga4PerformanceProvider,
+    UmamiPerformanceProvider,
     {
       provide: PERFORMANCE_PROVIDERS,
       useFactory: (
         shopify: ShopifyPerformanceProvider,
         ga4: Ga4PerformanceProvider,
-      ) => [shopify, ga4],
-      inject: [ShopifyPerformanceProvider, Ga4PerformanceProvider],
+        umami: UmamiPerformanceProvider,
+      ) => [shopify, ga4, umami],
+      inject: [
+        ShopifyPerformanceProvider,
+        Ga4PerformanceProvider,
+        UmamiPerformanceProvider,
+      ],
     },
   ],
   exports: [

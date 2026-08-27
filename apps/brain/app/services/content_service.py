@@ -9,7 +9,7 @@ from app.schemas.content import (
     Channel,
     ContentFormat,
 )
-from app.adapters.claude import ClaudeAdapter
+from app.adapters.factory import get_llm
 
 SYSTEM_PROMPT = (
     Path(__file__).parent.parent / "prompts" / "content_system.txt"
@@ -111,10 +111,10 @@ def _build_user_message(req: ContentGenerationRequest) -> str:
 
 class ContentService:
     def __init__(self) -> None:
-        self.claude = ClaudeAdapter()
+        self.llm = get_llm()
 
     def generate(self, req: ContentGenerationRequest) -> GeneratedContent:
         user_message = _build_user_message(req)
-        raw_text, _ = self.claude.complete(SYSTEM_PROMPT, user_message)
+        raw_text, _ = self.llm.complete(SYSTEM_PROMPT, user_message)
         raw_json = _parse_json_from_response(raw_text)
         return GeneratedContent(**raw_json)

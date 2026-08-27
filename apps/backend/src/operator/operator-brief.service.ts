@@ -18,11 +18,11 @@ import { AbandonedCheckoutService } from "../growth/abandoned-checkout.service";
 import { ReplenishmentService } from "../growth/replenishment.service";
 import { RevenueContextService } from "../revenue-optimization/revenue-context.service";
 import { MarketIntelligenceContextService } from "../market-intelligence/market-intelligence-context.service";
-import { REVENUE_POLICY } from "../revenue-optimization/revenue-policy.config";
 import { RevenueAttributionService } from "../revenue-optimization/revenue-attribution.service";
 import { RecommendationService } from "../measurement/recommendation.service";
 import { ExperimentMeasurementService } from "../measurement/experiment-measurement.service";
 import { OperatorBrainClient } from "./operator-brain.client";
+import { RuntimeSettingsService } from "../settings/runtime-settings.service";
 
 const BRAND_ID = "luminesce-brand-001";
 
@@ -53,6 +53,7 @@ export class OperatorBriefService {
     private readonly attribution: RevenueAttributionService,
     private readonly recommendations: RecommendationService,
     private readonly experimentMeasurement: ExperimentMeasurementService,
+    private readonly settings: RuntimeSettingsService,
   ) {}
 
   async buildToday(opts?: {
@@ -221,7 +222,7 @@ export class OperatorBriefService {
         brandId: BRAND_ID,
         status: "NEW",
         type: { in: ["CART_RECOVERY", "CHECKOUT_RECOVERY"] },
-        cartValue: { gte: REVENUE_POLICY.minOrderValue },
+        cartValue: { gte: this.settings.getRevenueSync().minOrderValue },
         contact: {
           is: {
             phone: { not: null },
