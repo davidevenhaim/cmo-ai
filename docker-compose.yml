@@ -1,0 +1,82 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ai_cmo
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./
+      dockerfile: apps/backend/Dockerfile
+    ports:
+      - "3001:3001"
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/ai_cmo
+      BRAIN_URL: http://brain:8000
+      CLAUDE_API_KEY: ${CLAUDE_API_KEY}
+      NODE_ENV: development
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_ALLOWED_CHAT_IDS: ${TELEGRAM_ALLOWED_CHAT_IDS:-}
+      TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:-}
+      TELEGRAM_BRIEF_CRON: ${TELEGRAM_BRIEF_CRON:-0 9 * * *}
+      BRAVE_SEARCH_API_KEY: ${BRAVE_SEARCH_API_KEY:-}
+      FIRECRAWL_API_KEY: ${FIRECRAWL_API_KEY:-}
+      RESEARCH_REQUEST_TIMEOUT_MS: ${RESEARCH_REQUEST_TIMEOUT_MS:-10000}
+      SHOPIFY_SHOP_DOMAIN: ${SHOPIFY_SHOP_DOMAIN:-}
+      SHOPIFY_ACCESS_TOKEN: ${SHOPIFY_ACCESS_TOKEN:-}
+      SHOPIFY_API_VERSION: ${SHOPIFY_API_VERSION:-2024-10}
+      SHOPIFY_DEFAULT_PERIOD_DAYS: ${SHOPIFY_DEFAULT_PERIOD_DAYS:-30}
+      SHOPIFY_LOW_STOCK_THRESHOLD: ${SHOPIFY_LOW_STOCK_THRESHOLD:-5}
+      SHOPIFY_REQUEST_TIMEOUT_MS: ${SHOPIFY_REQUEST_TIMEOUT_MS:-10000}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  brain:
+    build:
+      context: ./apps/brain
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      CLAUDE_API_KEY: ${CLAUDE_API_KEY}
+      BACKEND_URL: http://backend:3001
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  admin:
+    build:
+      context: ./apps/admin
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:3001
+      BACKEND_URL: http://backend:3001
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  postgres_data:

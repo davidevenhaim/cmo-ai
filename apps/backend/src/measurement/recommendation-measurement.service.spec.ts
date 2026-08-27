@@ -1,0 +1,312 @@
+import { RecommendationMeasurementService } from "./recommendation-measurement.service";
+import { BaselineService } from "./baseline.service";
+import { ContentOutcomeService } from "./content-outcome.service";
+import { UtmService } from "./utm.service";
+
+/**
+ * M9 §33 + adversarial coverage for finalize/measurement honesty.
+ * Fixtures use Product A / Campaign A — brand-agnostic.
+ */
+
+function makePrisma() {
+  return {
+    recommendation: {
+      findUnique: jest.fn(),
+      update: jest.fn(async ({ where, data }: any) => ({
+        id: where.id,
+        ...data,
+      })),
+      updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+      findMany: jest.fn().mockResolvedValue([]),
+    },
+    performanceObservation: {
+      findMany: jest.fn().mockResolvedValue([]),
+    },
+    outcomeMetric: {
+      deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      create: jest.fn(async ({ data }: any) => ({ id: "om-1", ...data })),
+    },
+  };
+}
+
+function baseRec(overrides: Record<string, unknown> = {}) {
+  const executedAt = new Date("2026-08-20T10:00:00Z");
+  return {
+    id: "rec-1",
+    type: "PUBLISH_CONTENT",
+    title: "Publish Product A guide",
+    expectedImpactValue: null,
+    executedAt,
+    createdAt: executedAt,
+    measurementWindowEndsAt: new Date("2026-08-27T10:00:00Z"),
+    contentBriefs: [],
+    revenueOpportunities: [],
+    ...overrides,
+  };
+}
+
+function withLivePublication(channel = "postiz") {
+  return {
+    contentBriefs: [
+      {
+        id: "brief-a",
+        drafts: [
+          {
+            publishRequests: [
+              {
+                provider: channel,
+                publication: {
+                  id: "pub-live-1",
+                  status: "LIVE",
+                  publishedAt: new Date("2026-08-20T12:00:00Z"),
+                },
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+}
+
+function makeSvc(prisma: ReturnType<typeof makePrisma>) {
+  const baselines = {
+    channelContentBaseline: jest.fn().mockResolvedValue({
+      baseline: 100,
+      samples: 5,
+      windowDays: 30,
+    }),
+    brandDailyBaseline: jest.fn().mockResolvedValue({
+      baseline: 1000,
+      samples: 7,
+      windowDays: 30,
+    }),
+  };
+  return new RecommendationMeasurementService(
+    prisma as any,
+    baselines as unknown as BaselineService,
+    new ContentOutcomeService(),
+    new UtmService(),
+  );
+}
+
+describe("RecommendationMeasurementService.startMeasuring", () => {
+  it("transitions EXECUTED → MEASURING", async () => {
+    const prisma = makePrisma();
+    prisma.recommendation.updateMany.mockResolvedValue({ count: 3 });
+    const svc = makeSvc(prisma);
+    await expect(svc.startMeasuring()).resolves.toBe(3);
+    expect(prisma.recommendation.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ status: "EXECUTED" }),
+        data: { status: "MEASURING" },
+      }),
+    );
+  });
+});
+
+describe("RecommendationMeasurementService.finalize — adversarial", () => {
+  // A — Social post with no analytics
+  it("A: LIVE publication + unavailable analytics → PARTIAL/UNAVAILABLE + INCONCLUSIVE", async () => {
+    const prisma = makePrisma();
+    prisma.recommendation.findUnique.mockResolvedValue(
+      baseRec(withLivePublication("postiz")),
+    );
+    prisma.performanceObservation.findMany.mockResolvedValue([]);
+    const svc = makeSvc(prisma);
+
+    const result = await svc.finalize("rec-1");
+
+    expect(result.status).toBe("MEASURED");
+    expect(result.outcome).toBe("INCONCLUSIVE");
+    expect(["PARTIAL", "UNAVAILABLE"]).toContain(result.dataQuality);
+    // Publication lineage is untouched — measurement never flips execution.
+    expect(prisma.outcomeMetric.deleteMany).toHaveBeenCalled();
+  });
+
+  // B — Correlation is not attribution
+  it("B: brand revenue rise without linkage is CORRELATED, never ATTRIBUTED", async () => {
+    const prisma = makePrisma();
+    prisma.recommendation.findUnique.mockResolvedValue(baseRec());
+    // Only BRAND revenue rows — CAMPAIGN/PUBLICATION queries must stay empty
+    // so the correlation fallback (not campaign ATTRIBUTED) is exercised.
+    prisma.performanceObservation.findMany.mockImplementation(
+      async ({ where }: any) => {
+        if (where.subjectType === "BRAND" && where.metric === "revenue") {
+          return [
+            {
+              provider: "shopify",
+              metric: "revenue",
+              dimension: "REVENUE",
+              value: 1200,
+              unit: "CURRENCY",
+              currencyCode: "USD",
+              dataQuality: "COMPLETE",
+            },
+          ];
+        }
+        return [];
+      },
+    );
+    const svc = makeSvc(prisma);
+
+    const result = await svc.finalize("rec-1");
+
+    expect(result.attributionStrength).toBe("CORRELATED");
+    expect(result.outcome).toBe("INCONCLUSIVE");
+    expect(result.outcomeSummary).toMatch(/correlation/i);
+    expect(result.outcomeSummary).not.toMatch(/generated by/i);
+    const created = prisma.outcomeMetric.create.mock.calls.map(
+      (c: any) => c[0].data,
+    );
+    expect(
+      created.every((m: any) => m.attributionStrength === "CORRELATED"),
+    ).toBe(true);
+  });
+
+  // C — Recovery attribution stays ATTRIBUTED
+  it("C: tracked recovery orders are ATTRIBUTED, not EXPERIMENTAL", async () => {
+    const prisma = makePrisma();
+    const windowStart = new Date("2026-08-20T10:00:00Z");
+    prisma.recommendation.findUnique.mockResolvedValue(
+      baseRec({
+        type: "RECOVER_ABANDONED",
+        expectedImpactValue: 50,
+        revenueOpportunities: [
+          {
+            attributions: [
+              {
+                attributionType: "ATTRIBUTED",
+                revenue: 120,
+                contributionProfit: 70,
+                incentiveCost: 10,
+                attributedAt: new Date("2026-08-21T10:00:00Z"),
+              },
+            ],
+          },
+        ],
+        executedAt: windowStart,
+      }),
+    );
+    const svc = makeSvc(prisma);
+
+    const result = await svc.finalize("rec-1");
+
+    expect(result.attributionStrength).toBe("ATTRIBUTED");
+    const metrics = prisma.outcomeMetric.create.mock.calls.map(
+      (c: any) => c[0].data,
+    );
+    expect(
+      metrics.find((m: any) => m.metric === "attributed_contribution_profit"),
+    ).toMatchObject({
+      value: 70,
+      attributionStrength: "ATTRIBUTED",
+      unit: "CURRENCY",
+    });
+    expect(
+      metrics.find((m: any) => m.metric === "incentive_cost"),
+    ).toMatchObject({ value: 10 });
+    expect(
+      metrics.some((m: any) => m.attributionStrength === "EXPERIMENTAL"),
+    ).toBe(false);
+  });
+
+  it("separates INCREMENTAL_ESTIMATE as EXPERIMENTAL", async () => {
+    const prisma = makePrisma();
+    prisma.recommendation.findUnique.mockResolvedValue(
+      baseRec({
+        revenueOpportunities: [
+          {
+            attributions: [
+              {
+                attributionType: "INCREMENTAL_ESTIMATE",
+                revenue: 80,
+                contributionProfit: 25,
+                incentiveCost: 5,
+                attributedAt: new Date("2026-08-21T10:00:00Z"),
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    const svc = makeSvc(prisma);
+    const result = await svc.finalize("rec-1");
+    expect(result.attributionStrength).toBe("EXPERIMENTAL");
+    const metrics = prisma.outcomeMetric.create.mock.calls.map(
+      (c: any) => c[0].data,
+    );
+    expect(
+      metrics.find((m: any) => m.metric === "experiment_incremental_profit"),
+    ).toMatchObject({ attributionStrength: "EXPERIMENTAL", value: 25 });
+  });
+
+  // G — stale provider quality propagates
+  it("G: STALE observation quality rolls up onto the recommendation", async () => {
+    const prisma = makePrisma();
+    prisma.recommendation.findUnique.mockResolvedValue(
+      baseRec(withLivePublication("wordpress")),
+    );
+    prisma.performanceObservation.findMany.mockImplementation(
+      async ({ where }: any) => {
+        if (where.subjectType === "PUBLICATION") {
+          return [
+            {
+              provider: "wordpress",
+              metric: "sessions",
+              dimension: "TRAFFIC",
+              value: 150,
+              unit: "COUNT",
+              currencyCode: null,
+              dataQuality: "STALE",
+            },
+          ];
+        }
+        return [];
+      },
+    );
+    const svc = makeSvc(prisma);
+    const result = await svc.finalize("rec-1");
+    expect(result.dataQuality).toBe("STALE");
+    expect(result.outcome).toBe("INCONCLUSIVE");
+    const metric = prisma.outcomeMetric.create.mock.calls[0][0].data;
+    expect(metric.dataQuality).toBe("STALE");
+  });
+
+  it("excludes mock observations from real conclusions", async () => {
+    const prisma = makePrisma();
+    prisma.recommendation.findUnique.mockResolvedValue(
+      baseRec(withLivePublication()),
+    );
+    // findMany is called with isMock: false — if mocks leaked in, we'd still
+    // assert the query filter.
+    const svc = makeSvc(prisma);
+    await svc.finalize("rec-1");
+    const pubQuery = prisma.performanceObservation.findMany.mock.calls.find(
+      (c: any) => c[0].where.subjectType === "PUBLICATION",
+    );
+    expect(pubQuery[0].where.isMock).toBe(false);
+  });
+
+  it("is idempotent — re-finalize replaces outcome metrics", async () => {
+    const prisma = makePrisma();
+    prisma.recommendation.findUnique.mockResolvedValue(baseRec());
+    const svc = makeSvc(prisma);
+    await svc.finalize("rec-1");
+    await svc.finalize("rec-1");
+    expect(prisma.outcomeMetric.deleteMany).toHaveBeenCalledTimes(2);
+  });
+
+  it("uses Product A / Campaign A fixtures only — no product-category assumptions", async () => {
+    const prisma = makePrisma();
+    prisma.recommendation.findUnique.mockResolvedValue(
+      baseRec({
+        title: "Publish Campaign A for Product A",
+        rationale: "Service A demand signal",
+      }),
+    );
+    const svc = makeSvc(prisma);
+    const result = await svc.finalize("rec-1");
+    expect(JSON.stringify(result)).not.toMatch(/tallow|skincare|Night Balm/i);
+  });
+});

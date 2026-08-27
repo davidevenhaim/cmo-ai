@@ -1,0 +1,1259 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Brand {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  voice       String?
+  audience    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  facts                  BrandFact[]
+  guidelines             BrandGuideline[]
+  sources                BrandSource[]
+  products               Product[]
+  cmoRuns                CmoRun[]
+  approvals              Approval[]
+  commerceSnapshots      CommerceSnapshot[]
+  researchSources        ResearchSource[]
+  researchRuns           ResearchRun[]
+  researchFindings       ResearchFinding[]
+  opportunities          Opportunity[]
+  contentBriefs          ContentBrief[]
+  contentDrafts          ContentDraft[]
+  contacts               Contact[]
+  abandonedCheckouts     AbandonedCheckout[]
+  segments               Segment[]
+  campaigns              Campaign[]
+  campaignExecutions     CampaignExecution[]
+  growthFlows            GrowthFlow[]
+  productRecommendations ProductRecommendation[]
+  replenishmentConfigs   ReplenishmentConfig[]
+  frequencyCapRules      FrequencyCapRule[]
+  conversionAttributions ConversionAttribution[]
+  growthSyncRuns         GrowthSyncRun[]
+  publishRequests        PublishRequest[]
+  keywords               Keyword[]
+  searchOpportunities    SearchOpportunity[]
+  marketOpportunities    MarketOpportunity[]
+  onsiteSearchMetrics    OnsiteSearchMetric[]
+  productFunnelMetrics   ProductFunnelMetric[]
+  audienceLanguageSignals AudienceLanguageSignal[]
+  questionSignals        QuestionSignal[]
+  marketIntelligenceSyncRuns MarketIntelligenceSyncRun[]
+  revenueOpportunities       RevenueOpportunity[]        @relation("BrandRevenueOpportunities")
+  productAffinities          ProductAffinity[]            @relation("BrandProductAffinities")
+  bundles                    Bundle[]                     @relation("BrandBundles")
+  revenueExperiments         RevenueExperiment[]          @relation("BrandRevenueExperiments")
+  revenueAttributions        RevenueAttribution[]         @relation("BrandRevenueAttributions")
+  recommendations            Recommendation[]             @relation("BrandRecommendations")
+  performanceObservations    PerformanceObservation[]     @relation("BrandPerformanceObservations")
+}
+
+model BrandFact {
+  id         String       @id @default(cuid())
+  brandId    String
+  category   String
+  content    String
+  confidence Float        @default(1.0)
+  sourceId   String?
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  brand      Brand        @relation(fields: [brandId], references: [id])
+  source     BrandSource? @relation(fields: [sourceId], references: [id])
+}
+
+model BrandGuideline {
+  id        String   @id @default(cuid())
+  brandId   String
+  category  String
+  rule      String
+  example   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  brand     Brand    @relation(fields: [brandId], references: [id])
+}
+
+model BrandSource {
+  id        String      @id @default(cuid())
+  brandId   String
+  type      String
+  label     String
+  url       String?
+  fetchedAt DateTime?
+  createdAt DateTime    @default(now())
+
+  brand     Brand       @relation(fields: [brandId], references: [id])
+  facts     BrandFact[]
+}
+
+model Product {
+  id               String   @id @default(cuid())
+  brandId          String
+  shopifyProductId String?
+  name             String
+  description      String?
+  category         String?
+  price            Float?
+  tags             String[]
+  active           Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  brand                  Brand                   @relation(fields: [brandId], references: [id])
+  replenishmentConfig    ReplenishmentConfig?
+  sourceRecommendations  ProductRecommendation[] @relation("SourceProduct")
+  targetRecommendations  ProductRecommendation[] @relation("TargetProduct")
+}
+
+model CmoRun {
+  id              String   @id @default(cuid())
+  brandId         String
+  triggeredBy     String
+  inputContext    Json
+  decisionType    String
+  decisionPayload Json
+  rationale       String
+  evidenceRefs    String[]
+  confidence      Float
+  modelId         String
+  modelVersion    String?
+  durationMs      Int?
+  failed          Boolean  @default(false)
+  failureReason   String?
+  createdAt       DateTime @default(now())
+
+  brand           Brand          @relation(fields: [brandId], references: [id])
+  approvals       Approval[]
+  contentBriefs   ContentBrief[]
+}
+
+// Generic approval model — covers content, campaigns, Shopify actions, ad-hoc.
+model Approval {
+  id          String    @id @default(cuid())
+  brandId     String
+  cmoRunId    String?
+  // CONTENT | CAMPAIGN | REPLY | SHOPIFY_ACTION | GENERAL
+  type        String
+  subject     String
+  description String
+  // PENDING | APPROVED | REJECTED
+  status      String    @default("PENDING")
+  resolvedAt  DateTime?
+  // "telegram" | "admin_ui" | "api"
+  resolvedBy  String?
+  metadata    Json?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  brand        Brand             @relation(fields: [brandId], references: [id])
+  cmoRun       CmoRun?           @relation(fields: [cmoRunId], references: [id])
+  messages     TelegramMessage[]
+  contentDraft ContentDraft?
+}
+
+// Lightweight snapshot of Shopify commerce context for stale-read fallback.
+model CommerceSnapshot {
+  id              String   @id @default(cuid())
+  brandId         String
+  snapshotAt      DateTime @default(now())
+  available       Boolean
+  shopName        String?
+  metricsJson     Json?
+  topProductsJson Json?
+  failureReason   String?
+
+  brand           Brand    @relation(fields: [brandId], references: [id])
+}
+
+// Stores every inbound and outbound Telegram interaction for observability and retry.
+model TelegramMessage {
+  id            String    @id @default(cuid())
+  chatId        String
+  // "inbound" | "outbound"
+  direction     String
+  text          String
+  telegramMsgId Int?
+  approvalId    String?
+  delivered     Boolean   @default(false)
+  deliveredAt   DateTime?
+  failureReason String?
+  createdAt     DateTime  @default(now())
+
+  approval      Approval? @relation(fields: [approvalId], references: [id])
+}
+
+// Tracked external research sources (competitor sites, subreddits, blogs, etc.)
+model ResearchSource {
+  id        String   @id @default(cuid())
+  brandId   String
+  // COMPETITOR | SUBREDDIT | BLOG | FORUM | WEBSITE | PUBLICATION | GENERIC
+  type      String
+  name      String
+  url       String?
+  active    Boolean  @default(true)
+  metadata  Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  brand    Brand             @relation(fields: [brandId], references: [id])
+  findings ResearchFinding[]
+}
+
+// Audit trail of each research execution.
+model ResearchRun {
+  id                   String    @id @default(cuid())
+  brandId              String
+  triggeredBy          String
+  // PENDING | RUNNING | COMPLETED | FAILED | PARTIAL
+  status               String    @default("PENDING")
+  queries              Json      // string[]
+  providers            String[]
+  findingsCreated      Int       @default(0)
+  findingsUpdated      Int       @default(0)
+  opportunitiesCreated Int       @default(0)
+  resultCount          Int       @default(0)
+  failureReason        String?
+  startedAt            DateTime  @default(now())
+  completedAt          DateTime?
+
+  brand    Brand             @relation(fields: [brandId], references: [id])
+  findings ResearchFinding[]
+}
+
+// Normalized, deduplicated research finding from any provider.
+model ResearchFinding {
+  id             String    @id @default(cuid())
+  brandId        String
+  runId          String?
+  sourceId       String?
+  url            String
+  urlHash        String    @unique // SHA-256 of normalized URL
+  title          String
+  excerpt        String    // max 500 chars — no raw scraped content
+  // COMPETITOR | SUBREDDIT | BLOG | FORUM | WEBSITE | PUBLICATION | GENERIC
+  sourceType     String
+  topic          String?
+  relevanceScore Float     @default(0)
+  urgencyScore   Float     @default(0)
+  sentiment      String?
+  providerMeta   Json?     // raw provider metadata (engagement counts, etc.)
+  publishedAt    DateTime?
+  discoveredAt   DateTime  @default(now())
+
+  brand         Brand           @relation(fields: [brandId], references: [id])
+  run           ResearchRun?    @relation(fields: [runId], references: [id])
+  source        ResearchSource? @relation(fields: [sourceId], references: [id])
+  opportunities Opportunity[]
+}
+
+// Prevents duplicate processing of Telegram updates (webhook retry safety).
+model ProcessedTelegramUpdate {
+  updateId  Int      @id
+  processedAt DateTime @default(now())
+}
+
+// Actionable opportunity derived from one or more research findings.
+model Opportunity {
+  id             String    @id @default(cuid())
+  brandId        String
+  findingId      String?   // primary triggering finding
+  // CONTENT_IDEA | ENGAGEMENT | TREND | COMPETITOR_ACTIVITY | CUSTOMER_QUESTION | PRODUCT_INSIGHT
+  type           String
+  title          String
+  summary        String
+  reason         String
+  relevanceScore Float     @default(0)
+  urgencyScore   Float     @default(0)
+  confidence     Float     @default(0)
+  // NEW | REVIEWED | ACTIONED | IGNORED
+  status         String    @default("NEW")
+  evidenceRefs   String[]  // finding IDs
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  brand         Brand         @relation(fields: [brandId], references: [id])
+  finding       ResearchFinding? @relation(fields: [findingId], references: [id])
+  contentBriefs ContentBrief[]
+}
+
+// Content brief — structured intent for a piece of content.
+model ContentBrief {
+  id                 String   @id @default(cuid())
+  brandId            String
+  cmoRunId           String?
+  opportunityId      String?
+  // ACTIVE | ARCHIVED
+  status             String   @default("ACTIVE")
+  objective          String
+  topic              String
+  angle              String
+  targetAudience     String
+  // INSTAGRAM | FACEBOOK | LINKEDIN | X | REDDIT | BLOG | GENERIC
+  channel            String
+  // POST | CAROUSEL | STORY | SHORT_VIDEO | LONG_FORM | COMMENT | THREAD
+  format             String
+  productIds         String[]
+  keyMessage         String
+  supportingEvidence Json     // ContentEvidenceItem[]
+  callToAction       String?
+  tone               String
+  constraints        String[]
+  creativeDirection  String?
+  // M7.6 SEO enrichment (all optional — only set when market intelligence drives the brief)
+  primaryKeyword     String?
+  secondaryKeywords  String[]
+  searchIntent       String?   // INFORMATIONAL | COMMERCIAL | TRANSACTIONAL | NAVIGATIONAL | PROBLEM_AWARE | PRODUCT_AWARE | BRAND
+  seoQuestions       String[]  // audience questions the content should answer
+  suggestedTitle     String?   // SEO-optimized title suggestion
+  suggestedOutline   Json?     // structured outline
+  searchOpportunityId String?
+  marketOpportunityId String?
+  // M9 lineage: the CMO recommendation this brief originated from, if any.
+  recommendationId   String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  brand              Brand              @relation(fields: [brandId], references: [id])
+  cmoRun             CmoRun?            @relation(fields: [cmoRunId], references: [id])
+  opportunity        Opportunity?       @relation(fields: [opportunityId], references: [id])
+  searchOpportunity  SearchOpportunity? @relation(fields: [searchOpportunityId], references: [id])
+  marketOpportunity  MarketOpportunity? @relation(fields: [marketOpportunityId], references: [id])
+  recommendation     Recommendation?    @relation("RecommendationContentBriefs", fields: [recommendationId], references: [id])
+  drafts             ContentDraft[]
+}
+
+// Generated content draft for a brief.
+model ContentDraft {
+  id                 String   @id @default(cuid())
+  brandId            String
+  briefId            String
+  cmoRunId           String?
+  version            Int      @default(1)
+  // INSTAGRAM | FACEBOOK | LINKEDIN | X | REDDIT | BLOG | GENERIC
+  channel            String
+  // POST | CAROUSEL | STORY | SHORT_VIDEO | LONG_FORM | COMMENT | THREAD
+  format             String
+  content            Json     // channel-native structured content
+  headline           String?
+  caption            String?
+  callToAction       String?
+  hashtags           String[]
+  // GENERATED | PENDING_REVIEW | APPROVED | REJECTED | SUPERSEDED
+  status             String   @default("GENERATED")
+  generationMetadata Json     // { model, durationMs, revisionOf?, attempt }
+  criticScore        Float?
+  criticEvaluation   Json?    // CriticEvaluation
+  creativeDirection  Json?    // for Weave M8
+  approvalId         String?  @unique
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  brand           Brand           @relation(fields: [brandId], references: [id])
+  brief           ContentBrief    @relation(fields: [briefId], references: [id])
+  approval        Approval?       @relation(fields: [approvalId], references: [id])
+  feedback        ContentFeedback[]
+  publishRequests PublishRequest[]
+}
+
+// Owner feedback on a content draft — preserved for future preference learning.
+model ContentFeedback {
+  id        String   @id @default(cuid())
+  draftId   String
+  // "telegram" | "admin" | "api"
+  source    String
+  feedback  String
+  createdAt DateTime @default(now())
+
+  draft ContentDraft @relation(fields: [draftId], references: [id])
+}
+
+// ─── M6.5 Growth Engine ────────────────────────────────────────────────────
+
+// First-party contact record, normalised from Shopify customer data.
+// Only fields needed for growth logic — not a raw Shopify dump.
+model Contact {
+  id                   String    @id @default(cuid())
+  brandId              String
+  shopifyCustomerId    String?   @unique
+  email                String?
+  phone                String?
+  firstName            String?
+  lastName             String?
+  // SUBSCRIBED | NOT_SUBSCRIBED | UNSUBSCRIBED | PENDING | REDACTED
+  emailMarketingStatus String    @default("NOT_SUBSCRIBED")
+  // SUBSCRIBED | NOT_SUBSCRIBED | UNSUBSCRIBED | PENDING | REDACTED
+  smsMarketingStatus   String    @default("NOT_SUBSCRIBED")
+  firstOrderAt         DateTime?
+  lastOrderAt          DateTime?
+  orderCount           Int       @default(0)
+  lifetimeRevenue      Float     @default(0)
+  currencyCode         String    @default("USD")
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  brand                Brand               @relation(fields: [brandId], references: [id])
+  abandonedCheckouts   AbandonedCheckout[]
+  suppressions         ContactSuppression[]
+  campaignTouches      CampaignTouch[]
+  attributions         ConversionAttribution[]
+  revenueOpportunities RevenueOpportunity[] @relation("ContactRevenueOpportunities")
+}
+
+// Suppression record — prevents marketing when a reason is active.
+model ContactSuppression {
+  id        String    @id @default(cuid())
+  contactId String
+  // NO_CONSENT | UNSUBSCRIBED | RECENTLY_CONTACTED | PURCHASE_COMPLETED |
+  // INVENTORY_UNAVAILABLE | FREQUENCY_CAP | INVALID_CONTACT
+  reason    String
+  detail    String?
+  expiresAt DateTime? // null = permanent
+  createdAt DateTime  @default(now())
+
+  contact Contact @relation(fields: [contactId], references: [id])
+}
+
+// Abandoned checkout — deduplicated by shopifyCheckoutId.
+model AbandonedCheckout {
+  id                String    @id @default(cuid())
+  brandId           String
+  shopifyCheckoutId String    @unique
+  contactId         String?
+  email             String?   // denormalised from Contact for quick access
+  lineItems         Json      // [{ productId, shopifyProductId, title, quantity, price, currency }]
+  totalValue        Float
+  currencyCode      String
+  abandonedAt       DateTime
+  recoveryUrl       String?   // Shopify abandonedCheckoutUrl
+  // ACTIVE | RECOVERY_STARTED | RECOVERED | EXPIRED | SUPPRESSED
+  status            String    @default("ACTIVE")
+  recoveredAt       DateTime?
+  recoveryOrderId   String?   // Shopify order GID after conversion
+  checkoutToken     String?   // used to match against Order.checkoutToken
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  brand                Brand               @relation(fields: [brandId], references: [id])
+  contact              Contact?            @relation(fields: [contactId], references: [id])
+  campaignTouches      CampaignTouch[]
+  attributions         ConversionAttribution[]
+  revenueOpportunities RevenueOpportunity[] @relation("CheckoutRevenueOpportunity")
+}
+
+// Deterministic audience segment.
+model Segment {
+  id              String    @id @default(cuid())
+  brandId         String
+  // PROSPECT | FIRST_TIME_CUSTOMER | REPEAT_CUSTOMER | VIP | RECENT_CUSTOMER |
+  // LAPSED_CUSTOMER | ABANDONED_CHECKOUT | HIGH_VALUE_ABANDONMENT | REPLENISHMENT_DUE
+  type            String
+  name            String
+  description     String?
+  // Optional product filter — e.g. "Night Balm buyers only"
+  productFilter   Json?     // { productId?: string, shopifyProductId?: string }
+  memberCount     Int       @default(0)
+  lastRefreshedAt DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  brand     Brand      @relation(fields: [brandId], references: [id])
+  campaigns Campaign[]
+
+  @@unique([brandId, type, name])
+}
+
+// Marketing campaign — lifecycle from DRAFT to SENT (execution stays explicit).
+model Campaign {
+  id            String    @id @default(cuid())
+  brandId       String
+  // NEWSLETTER | ABANDONED_CHECKOUT | POST_PURCHASE | REPLENISHMENT |
+  // WIN_BACK | CROSS_SELL | PROMOTION
+  type          String
+  name          String
+  objective     String?
+  segmentId     String?
+  contentBriefId String?
+  // DRAFT | PENDING_APPROVAL | APPROVED | QUEUED | SENT | CANCELLED
+  status        String    @default("DRAFT")
+  subject       String?
+  previewText   String?
+  scheduledAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  brand        Brand                   @relation(fields: [brandId], references: [id])
+  segment      Segment?                @relation(fields: [segmentId], references: [id])
+  touches      CampaignTouch[]
+  attributions ConversionAttribution[]
+  emailMessages EmailMessage[]
+  executions   CampaignExecution[]
+}
+
+// Explicit execution record — Campaign APPROVED does NOT auto-send.
+// Owner must create a CampaignExecution (defaults to DRY_RUN).
+model CampaignExecution {
+  id            String    @id @default(cuid())
+  campaignId    String
+  brandId       String
+  // DRY_RUN | LIVE
+  mode          String    @default("DRY_RUN")
+  // PENDING | RUNNING | COMPLETED | FAILED
+  status        String    @default("PENDING")
+  // Snapshot of recipient eligibility computed at execution time
+  recipientSnapshot Json? // { total, eligible, suppressed, suppressionReasons: Record<string, number> }
+  sent          Int       @default(0)
+  suppressed    Int       @default(0)
+  failed        Int       @default(0)
+  failureReason String?
+  requestedAt   DateTime  @default(now())
+  executedAt    DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  campaign Campaign @relation(fields: [campaignId], references: [id])
+  brand    Brand    @relation(fields: [brandId], references: [id])
+}
+
+// Individual email message record (queued/sent per contact).
+// MockEmailProvider stores here. Real providers update deliveryStatus.
+model EmailMessage {
+  id              String    @id @default(cuid())
+  campaignId      String?
+  contactId       String?
+  to              String    // email address
+  subject         String
+  previewText     String?
+  body            String    // HTML or plain text
+  callToAction    String?
+  // QUEUED | SENT | DELIVERED | FAILED | SUPPRESSED
+  deliveryStatus  String    @default("QUEUED")
+  providerMessageId String?
+  sentAt          DateTime?
+  deliveredAt     DateTime?
+  failedAt        DateTime?
+  failureReason   String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  campaign Campaign? @relation(fields: [campaignId], references: [id])
+}
+
+// Touchpoint record — a marketing interaction with a contact.
+model CampaignTouch {
+  id                  String    @id @default(cuid())
+  campaignId          String?
+  contactId           String
+  abandonedCheckoutId String?
+  // SEND | OPEN | CLICK | CONVERSION
+  touchType           String
+  timestamp           DateTime  @default(now())
+  metadata            Json?
+
+  campaign          Campaign?          @relation(fields: [campaignId], references: [id])
+  contact           Contact            @relation(fields: [contactId], references: [id])
+  abandonedCheckout AbandonedCheckout? @relation(fields: [abandonedCheckoutId], references: [id])
+}
+
+// Revenue attribution — which campaign/flow recovered which order.
+// First attribution model: last-touch. Documented as approximate.
+model ConversionAttribution {
+  id                  String   @id @default(cuid())
+  brandId             String
+  campaignId          String?
+  contactId           String?
+  abandonedCheckoutId String?
+  shopifyOrderId      String?
+  attributedRevenue   Float
+  currencyCode        String
+  discountAmount      Float    @default(0)
+  // LAST_TOUCH | FIRST_TOUCH | ASSISTED
+  attributionMethod   String   @default("LAST_TOUCH")
+  attributedAt        DateTime @default(now())
+
+  brand             Brand              @relation(fields: [brandId], references: [id])
+  campaign          Campaign?          @relation(fields: [campaignId], references: [id])
+  contact           Contact?           @relation(fields: [contactId], references: [id])
+  abandonedCheckout AbandonedCheckout? @relation(fields: [abandonedCheckoutId], references: [id])
+}
+
+// Growth flow — e.g. abandoned checkout recovery, replenishment, win-back.
+model GrowthFlow {
+  id        String   @id @default(cuid())
+  brandId   String
+  // ABANDONED_CHECKOUT | POST_PURCHASE | REPLENISHMENT | WIN_BACK | CROSS_SELL
+  type      String
+  name      String
+  active    Boolean  @default(true)
+  config    Json?    // flow-level configuration overrides
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  brand Brand       @relation(fields: [brandId], references: [id])
+  steps GrowthStep[]
+}
+
+// Individual step within a growth flow.
+model GrowthStep {
+  id          String   @id @default(cuid())
+  flowId      String
+  stepNumber  Int
+  delayHours  Int      // wait time before this step fires
+  condition   Json?    // { noRepeatPurchase?: bool, minValue?: number, etc. }
+  // SEND_EMAIL | REQUEST_APPROVAL | NO_OP
+  action      String
+  config      Json?    // step-specific: { subject, templateHint, offerType? }
+  createdAt   DateTime @default(now())
+
+  flow GrowthFlow @relation(fields: [flowId], references: [id])
+
+  @@unique([flowId, stepNumber])
+}
+
+// Per-product replenishment window estimate (manually configured; M10 may learn actuals).
+model ReplenishmentConfig {
+  id         String   @id @default(cuid())
+  brandId    String
+  productId  String   @unique
+  windowDays Int
+  notes      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  brand   Brand   @relation(fields: [brandId], references: [id])
+  product Product @relation(fields: [productId], references: [id])
+}
+
+// Cross-sell / upsell recommendation — manual or commerce-derived.
+model ProductRecommendation {
+  id              String   @id @default(cuid())
+  brandId         String
+  sourceProductId String
+  targetProductId String
+  // CROSS_SELL | UPSELL
+  type            String
+  // MANUAL | COMMERCE
+  source          String
+  // 0.0–1.0 — confidence/co-occurrence strength (null for manual)
+  strength        Float?
+  // Number of orders supporting this recommendation (null for manual)
+  sampleSize      Int?
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  brand         Brand   @relation(fields: [brandId], references: [id])
+  sourceProduct Product @relation("SourceProduct", fields: [sourceProductId], references: [id])
+  targetProduct Product @relation("TargetProduct", fields: [targetProductId], references: [id])
+
+  @@unique([brandId, sourceProductId, targetProductId, type])
+}
+
+// Audit record for each run of the Growth sync pipeline.
+// Idempotency: re-running a sync produces at most one RUNNING record at a time.
+model GrowthSyncRun {
+  id               String    @id @default(cuid())
+  brandId          String
+  // RUNNING | COMPLETED | PARTIAL | FAILED
+  status           String    @default("RUNNING")
+  startedAt        DateTime  @default(now())
+  completedAt      DateTime?
+  customersFetched Int       @default(0)
+  checkoutsFetched Int       @default(0)
+  contactsCreated  Int       @default(0)
+  contactsUpdated  Int       @default(0)
+  checkoutsCreated Int       @default(0)
+  checkoutsUpdated Int       @default(0)
+  recovered        Int       @default(0)
+  errors           Json?     // string[] of non-fatal per-record errors
+  failureReason    String?   // set when status = FAILED
+
+  brand Brand @relation(fields: [brandId], references: [id])
+}
+
+// Publish request — explicit owner action required before any remote publishing.
+// Statuses: PENDING → APPROVED → EXECUTING → SUCCEEDED | FAILED
+model PublishRequest {
+  id               String    @id @default(cuid())
+  brandId          String
+  contentDraftId   String
+  // BLOG | INSTAGRAM | FACEBOOK | LINKEDIN | X | REDDIT | EMAIL
+  provider         String
+  // provider-specific destination, e.g. "wordpress:primary", "instagram:main"
+  destination      String
+  // PENDING | APPROVED | EXECUTING | SUCCEEDED | FAILED
+  status           String    @default("PENDING")
+  requestedAt      DateTime  @default(now())
+  approvedAt       DateTime?
+  executedAt       DateTime?
+  // Owner-requested publish time — NestJS owns this; provider owns remote delivery once submitted
+  scheduledAt      DateTime?
+  failureReason    String?
+  // provider-specific IDs, remote draft IDs, scheduling info
+  providerMetadata Json?
+  retryCount       Int       @default(0)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  brand        Brand        @relation(fields: [brandId], references: [id])
+  contentDraft ContentDraft @relation(fields: [contentDraftId], references: [id])
+  publication  Publication?
+}
+
+// Persisted record of the remote artifact created by a PublishRequest.
+// One-to-one with PublishRequest; status DRAFT | LIVE | UNKNOWN | FAILED
+model Publication {
+  id               String    @id @default(cuid())
+  publishRequestId String    @unique
+  provider         String
+  remoteId         String?   // provider's ID (WordPress post ID, social post ID, etc.)
+  remoteUrl        String?   // canonical public URL, if known
+  publishedAt      DateTime?
+  // DRAFT | LIVE | UNKNOWN | FAILED
+  status           String
+  metadata         Json?     // provider-specific extra fields
+
+  publishRequest PublishRequest @relation(fields: [publishRequestId], references: [id])
+}
+
+// Configurable frequency cap rule — NestJS enforces, never Claude.
+model FrequencyCapRule {
+  id             String   @id @default(cuid())
+  brandId        String
+  name           String
+  // Maximum messages allowed in the window
+  maxMessages    Int
+  windowDays     Int
+  // null = global; otherwise flow-type-specific
+  flowType       String?
+  createdAt      DateTime @default(now())
+
+  brand Brand @relation(fields: [brandId], references: [id])
+}
+
+// ─── M7.6 Market Intelligence ─────────────────────────────────────────────
+
+// Brand-specific keyword universe — seeded from brand, products, and external signals.
+model Keyword {
+  id                 String    @id @default(cuid())
+  brandId            String
+  keyword            String
+  normalizedKeyword  String
+  language           String    @default("en")
+  country            String    @default("US")
+  topic              String?
+  // INFORMATIONAL | COMMERCIAL | TRANSACTIONAL | NAVIGATIONAL | PROBLEM_AWARE | PRODUCT_AWARE | BRAND
+  intent             String?
+  intentClassifiedAt DateTime?
+  // BRAND_SEED | PRODUCT_SEED | WEBSITE_SEED | SEARCH_CONSOLE | RESEARCH | KEYWORD_PLANNER | MANUAL
+  source             String
+  relevance          Float     @default(0.5)
+  active             Boolean   @default(true)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  brand               Brand               @relation(fields: [brandId], references: [id])
+  metrics             KeywordMetric[]
+  searchOpportunities SearchOpportunity[]
+
+  @@unique([brandId, normalizedKeyword, language, country])
+}
+
+// Time-series metrics for a keyword from a specific provider.
+model KeywordMetric {
+  id               String   @id @default(cuid())
+  keywordId        String
+  // SEARCH_CONSOLE | TRENDS | KEYWORD_PLANNER | ONSITE
+  source           String
+  // ISO date YYYY-MM-DD (daily), YYYY-MM (monthly), YYYY-WW (weekly)
+  period           String
+  // Search Console
+  clicks           Int?
+  impressions      Int?
+  ctr              Float?
+  averagePosition  Float?
+  // Google Trends (relative 0–100, not absolute volume)
+  trendScore       Float?
+  trendDelta       Float?   // change vs prior period
+  // Keyword Planner
+  searchVolume     Int?
+  competition      String?  // LOW | MEDIUM | HIGH
+  competitionIndex Float?   // 0.0–1.0
+  lowTopOfPageBid  Float?
+  highTopOfPageBid Float?
+  // Provenance
+  fetchedAt        DateTime @default(now())
+  // AVAILABLE | STALE | INCOMPLETE | UNAVAILABLE | MOCK
+  // MOCK = fixture data from an unconfigured/mock provider — excluded from
+  // opportunity detection and scoring; never presented as live evidence.
+  evidenceStatus   String   @default("AVAILABLE")
+
+  keyword Keyword @relation(fields: [keywordId], references: [id])
+
+  @@unique([keywordId, source, period])
+}
+
+// SEO/search-specific opportunity derived from deterministic rules.
+model SearchOpportunity {
+  id                String   @id @default(cuid())
+  brandId           String
+  keywordId         String?
+  // STRIKING_DISTANCE | HIGH_IMPRESSIONS_LOW_CTR | RISING_QUERY | DECAYING_QUERY | CONTENT_GAP | CANNIBALIZATION
+  opportunityType   String
+  topic             String
+  score             Float    @default(0)
+  reason            String
+  evidence          Json     // { impressions?, clicks?, position?, ctr?, trendScore?, ... }
+  relatedProductIds String[]
+  relatedContentIds String[]
+  // NEW | ACTIONED | IGNORED | RESOLVED
+  status            String   @default("NEW")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  brand         Brand          @relation(fields: [brandId], references: [id])
+  keyword       Keyword?       @relation(fields: [keywordId], references: [id])
+  contentBriefs ContentBrief[]
+}
+
+// Higher-level market opportunity combining multiple intelligence signals.
+model MarketOpportunity {
+  id                String   @id @default(cuid())
+  brandId           String
+  topic             String
+  // SEARCH | TREND | COMMUNITY | COMMERCE | ONSITE | COMPETITOR | MULTI_SIGNAL
+  source            String
+  // CREATE_BLOG | UPDATE_BLOG | CREATE_SOCIAL | CREATE_CAROUSEL | OPTIMIZE_PRODUCT_PAGE |
+  // CREATE_FAQ | CREATE_EMAIL | RESEARCH_DEEPER | MONITOR | NO_ACTION
+  recommendedAction String
+  score             Float    @default(0)
+  componentScores   Json     // { brandRelevance, searchDemand, trendMomentum, commercialIntent, ... }
+  explanation       String
+  evidenceRefs      String[]
+  relatedKeywords   String[]
+  relatedProductIds String[]
+  relatedContentIds String[]
+  confidence        Float    @default(0)
+  // NEW | ACTIONED | IGNORED | EXPIRED
+  status            String   @default("NEW")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  brand         Brand          @relation(fields: [brandId], references: [id])
+  contentBriefs ContentBrief[]
+}
+
+// First-party onsite search signals — aggregated daily, no individual sessions.
+model OnsiteSearchMetric {
+  id              String   @id @default(cuid())
+  brandId         String
+  query           String
+  normalizedQuery String
+  count           Int      @default(1)
+  // YYYY-MM-DD
+  period          String
+  resultCount     Int?
+  fetchedAt       DateTime @default(now())
+
+  brand Brand @relation(fields: [brandId], references: [id])
+
+  @@unique([brandId, normalizedQuery, period])
+}
+
+// Aggregate product funnel metrics — no individual customer identifiers.
+model ProductFunnelMetric {
+  id               String   @id @default(cuid())
+  brandId          String
+  shopifyProductId String?
+  productName      String
+  // YYYY-MM-DD or YYYY-MM
+  period           String
+  views            Int      @default(0)
+  addToCart        Int      @default(0)
+  checkoutStarts   Int      @default(0)
+  purchases        Int      @default(0)
+  revenue          Float    @default(0)
+  atcRate          Float?   // addToCart / views
+  checkoutRate     Float?   // checkoutStarts / addToCart
+  purchaseRate     Float?   // purchases / checkoutStarts
+  conversionRate   Float?   // purchases / views
+  fetchedAt        DateTime @default(now())
+
+  brand Brand @relation(fields: [brandId], references: [id])
+
+  @@unique([brandId, shopifyProductId, period])
+}
+
+// Recurring language patterns extracted from community sources (Reddit, forums, research).
+model AudienceLanguageSignal {
+  id          String   @id @default(cuid())
+  brandId     String
+  phrase      String
+  topic       String?
+  frequency   Int      @default(1)
+  // REDDIT | FORUM | BLOG | SEARCH | ONSITE
+  sourceTypes String[]
+  // RISING | STABLE | DECLINING
+  trend       String?
+  excerpts    String[] // max 3, max 200 chars each — untrusted external, display only
+  confidence  Float    @default(0.5)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  brand Brand @relation(fields: [brandId], references: [id])
+
+  @@unique([brandId, phrase])
+}
+
+// Recurring questions from audience (search, onsite, community).
+model QuestionSignal {
+  id        String   @id @default(cuid())
+  brandId   String
+  question  String
+  topic     String?
+  frequency Int      @default(1)
+  // SEARCH_CONSOLE | ONSITE | REDDIT | FORUM | KEYWORD_PLANNER
+  sources   String[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  brand Brand @relation(fields: [brandId], references: [id])
+
+  @@unique([brandId, question])
+}
+
+// Audit record for each market intelligence sync run.
+model MarketIntelligenceSyncRun {
+  id                   String    @id @default(cuid())
+  brandId              String
+  // RUNNING | COMPLETED | PARTIAL | FAILED
+  status               String    @default("RUNNING")
+  providersAttempted   String[]
+  providersSucceeded   String[]
+  providersFailed      String[]
+  keywordsSeeded       Int       @default(0)
+  metricsIngested      Int       @default(0)
+  opportunitiesCreated Int       @default(0)
+  failureReason        String?
+  startedAt            DateTime  @default(now())
+  completedAt          DateTime?
+
+  brand Brand @relation(fields: [brandId], references: [id])
+}
+
+// ─── M7.7 Revenue Optimization ───────────────────────────────────────────────
+
+model RevenueOpportunity {
+  id                  String    @id @default(cuid())
+  brandId             String
+  type                String
+  stage               String    @default("CART")
+  status              String    @default("NEW")
+  contactId           String?
+  shopifyCustomerId   String?
+  shopifyCheckoutId   String?
+  abandonedCheckoutId String?
+  products            Json      @default("[]")
+  cartValue           Float?
+  recoveryUrl         String?
+  abandonedAt         DateTime?
+  recoveredAt         DateTime?
+  resultingOrderId    String?
+  recoveryValue       Float?
+  expiresAt           DateTime?
+  // M9 lineage: the CMO recommendation that proposed acting on this opportunity.
+  recommendationId    String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  brand             Brand              @relation("BrandRevenueOpportunities", fields: [brandId], references: [id])
+  recommendation    Recommendation?    @relation("RecommendationRevenueOpportunities", fields: [recommendationId], references: [id])
+  contact           Contact?           @relation("ContactRevenueOpportunities", fields: [contactId], references: [id])
+  abandonedCheckout AbandonedCheckout? @relation("CheckoutRevenueOpportunity", fields: [abandonedCheckoutId], references: [id])
+  journey           RecoveryJourney?
+  actions           CustomerRevenueAction[]
+  attributions      RevenueAttribution[]
+
+  @@index([brandId, status])
+  @@index([brandId, type])
+  @@index([brandId, contactId])
+}
+
+model RecoveryJourney {
+  id            String   @id @default(cuid())
+  brandId       String
+  opportunityId String   @unique
+  status        String   @default("ACTIVE")
+  stopReason    String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  opportunity RevenueOpportunity   @relation(fields: [opportunityId], references: [id])
+  steps       RecoveryJourneyStep[]
+}
+
+model RecoveryJourneyStep {
+  id                String    @id @default(cuid())
+  journeyId         String
+  stepNumber        Int
+  delayHours        Int
+  scheduledAt       DateTime
+  executedAt        DateTime?
+  status            String    @default("PENDING")
+  channel           String?
+  offerType         String?
+  offerValue        Float?
+  messageBody       String?
+  providerMessageId String?
+  skipReason        String?
+
+  journey RecoveryJourney @relation(fields: [journeyId], references: [id])
+}
+
+model CustomerRevenueAction {
+  id                String   @id @default(cuid())
+  brandId           String
+  opportunityId     String
+  type              String
+  channel           String?
+  providerMessageId String?
+  metadata          Json?
+  occurredAt        DateTime @default(now())
+
+  opportunity RevenueOpportunity @relation(fields: [opportunityId], references: [id])
+
+  @@index([brandId, opportunityId])
+}
+
+model ProductAffinity {
+  id            String   @id @default(cuid())
+  brandId       String
+  productAId    String
+  productBId    String
+  productATitle String
+  productBTitle String
+  coOccurrences Int
+  supportA      Int
+  supportB      Int
+  totalOrders   Int
+  confidence    Float
+  lift          Float
+  computedAt    DateTime @default(now())
+
+  brand Brand @relation("BrandProductAffinities", fields: [brandId], references: [id])
+
+  @@unique([brandId, productAId, productBId])
+  @@index([brandId, productAId])
+}
+
+model Bundle {
+  id              String   @id @default(cuid())
+  brandId         String
+  name            String
+  products        Json
+  normalPrice     Float
+  bundlePrice     Float
+  discountPct     Float
+  estimatedCogs   Float?
+  estimatedMargin Float?
+  inventoryOk     Boolean  @default(true)
+  source          String
+  active          Boolean  @default(true)
+  approved        Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  brand Brand @relation("BrandBundles", fields: [brandId], references: [id])
+}
+
+model RevenueExperiment {
+  id          String    @id @default(cuid())
+  brandId     String
+  name        String
+  description String?
+  status      String    @default("DRAFT")
+  variants    Json
+  metrics     Json?
+  startedAt   DateTime?
+  endedAt     DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  brand       Brand                        @relation("BrandRevenueExperiments", fields: [brandId], references: [id])
+  assignments RevenueExperimentAssignment[]
+}
+
+model RevenueExperimentAssignment {
+  id                 String    @id @default(cuid())
+  experimentId       String
+  customerId         String
+  variantId          String
+  variantName        String
+  isControl          Boolean   @default(false)
+  assignedAt         DateTime  @default(now())
+  convertedAt        DateTime?
+  revenue            Float?
+  incentiveCost      Float?
+  contributionProfit Float?
+
+  experiment RevenueExperiment @relation(fields: [experimentId], references: [id])
+
+  @@unique([experimentId, customerId])
+}
+
+model RevenueAttribution {
+  id                 String   @id @default(cuid())
+  brandId            String
+  opportunityId      String
+  shopifyOrderId     String?
+  revenue            Float?
+  incentiveCost      Float?
+  shippingSubsidy    Float?
+  estimatedCogs      Float?
+  grossMargin        Float?
+  contributionProfit Float?
+  attributionType    String   @default("ATTRIBUTED")
+  experimentId       String?
+  variantId          String?
+  attributedAt       DateTime @default(now())
+
+  brand       Brand              @relation("BrandRevenueAttributions", fields: [brandId], references: [id])
+  opportunity RevenueOpportunity @relation(fields: [opportunityId], references: [id])
+
+  @@index([brandId, attributedAt])
+}
+
+// ---------------------------------------------------------------------------
+// M9 — Measurement, Attribution & Feedback Loop
+// ---------------------------------------------------------------------------
+
+// A persisted CMO recommendation. Links to (never replaces) domain entities
+// like ContentBrief / RevenueOpportunity, and accumulates measured outcomes.
+model Recommendation {
+  id           String  @id @default(cuid())
+  brandId      String
+  // CREATE_CONTENT | RECOVER_ABANDONED | RUN_EXPERIMENT | REVIEW_CONTENT |
+  // PUBLISH_CONTENT | FIX_CONNECTION | REVIEW_SEGMENT | OTHER
+  type         String
+  title        String
+  rationale    String
+  // JSON array of evidence references: [{ source, refType, refId?, note? }]
+  evidenceRefs Json    @default("[]")
+  confidence   Float
+  expectedImpact      String?
+  expectedImpactValue Float?
+  // CURRENCY | PERCENTAGE | COUNT | DURATION | SCORE | OTHER
+  expectedImpactUnit  String?
+  // MARKET_OPPORTUNITY | SEARCH_OPPORTUNITY | REVENUE_OPPORTUNITY |
+  // CONTENT_DRAFT | PUBLISH_REQUEST | EXPERIMENT | SEGMENT | CONNECTION | BRAND
+  targetType   String?
+  targetId     String?
+  // READ | PROPOSE | MUTATE | EXECUTE
+  actionClass  String
+  // PROPOSED | APPROVED | REJECTED | EXECUTED | MEASURING | MEASURED | EXPIRED | FAILED
+  status       String  @default("PROPOSED")
+  // NOT_RELEVANT | BAD_TIMING | BRAND_MISMATCH | TOO_EXPENSIVE | TOO_RISKY | ALREADY_PLANNED | OTHER
+  rejectionReason String?
+  rejectionNote   String?
+  decidedAt    DateTime?
+  executedAt   DateTime?
+  measurementWindowDays   Int @default(7)
+  measurementWindowEndsAt DateTime?
+  measuredAt   DateTime?
+  // OUTPERFORMED | EXPECTED | UNDERPERFORMED | INCONCLUSIVE
+  outcome        String?
+  outcomeSummary String?
+  // DIRECT | ATTRIBUTED | EXPERIMENTAL | CORRELATED | UNKNOWN
+  attributionStrength String?
+  // COMPLETE | PARTIAL | STALE | INSUFFICIENT | UNAVAILABLE
+  dataQuality  String?
+  // Stable dedupe key (brand + type + target) so re-proposing is idempotent.
+  dedupeKey    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  brand                Brand                @relation("BrandRecommendations", fields: [brandId], references: [id])
+  outcomeMetrics       OutcomeMetric[]
+  contentBriefs        ContentBrief[]       @relation("RecommendationContentBriefs")
+  revenueOpportunities RevenueOpportunity[] @relation("RecommendationRevenueOpportunities")
+
+  @@index([brandId, status])
+  @@index([brandId, dedupeKey])
+  @@index([brandId, createdAt])
+}
+
+// One measured outcome dimension for a recommendation (aggregated at
+// measurement-window close). Units are generic — not everything is money.
+model OutcomeMetric {
+  id               String @id @default(cuid())
+  recommendationId String
+  // REACH | ENGAGEMENT | TRAFFIC | LEADS | CONVERSIONS | REVENUE | PROFIT |
+  // RETENTION | AOV | RECOVERY | SUBSCRIPTIONS | OTHER
+  dimension        String
+  metric           String
+  value            Float
+  // CURRENCY | PERCENTAGE | COUNT | DURATION | SCORE | OTHER
+  unit             String
+  currencyCode     String?
+  baseline         Float?
+  delta            Float?
+  deltaPct         Float?
+  source           String
+  // DIRECT | ATTRIBUTED | EXPERIMENTAL | CORRELATED | UNKNOWN
+  attributionStrength String @default("UNKNOWN")
+  // COMPLETE | PARTIAL | STALE | INSUFFICIENT | UNAVAILABLE
+  dataQuality      String @default("COMPLETE")
+  observedAt       DateTime @default(now())
+  createdAt        DateTime @default(now())
+
+  recommendation Recommendation @relation(fields: [recommendationId], references: [id])
+
+  @@index([recommendationId])
+}
+
+// Provider-neutral performance observation. Idempotent per provider metric
+// time bucket — re-ingestion upserts instead of duplicating.
+model PerformanceObservation {
+  id          String @id @default(cuid())
+  brandId     String
+  // shopify | ga4 | wordpress | postiz | waha | email | search-console | ...
+  provider    String
+  // PUBLICATION | CONTENT_DRAFT | RECOMMENDATION | CHANNEL | BRAND | CAMPAIGN | EXPERIMENT
+  subjectType String
+  subjectId   String
+  metric      String
+  // REACH | ENGAGEMENT | TRAFFIC | LEADS | CONVERSIONS | REVENUE | PROFIT |
+  // RETENTION | AOV | RECOVERY | SUBSCRIPTIONS | OTHER
+  dimension   String
+  value       Float
+  // CURRENCY | PERCENTAGE | COUNT | DURATION | SCORE | OTHER
+  unit        String
+  currencyCode String?
+  bucketStart DateTime
+  bucketEnd   DateTime
+  observedAt  DateTime @default(now())
+  // COMPLETE | PARTIAL | STALE | INSUFFICIENT | UNAVAILABLE
+  dataQuality String @default("COMPLETE")
+  // DIRECT | ATTRIBUTED | EXPERIMENTAL | CORRELATED | UNKNOWN
+  attributionStrength String @default("UNKNOWN")
+  // True when produced by a mock provider — never used for real conclusions.
+  isMock      Boolean @default(false)
+  // Bounded excerpt of the raw provider payload (for audit, not reprocessing).
+  rawPayload  Json?
+
+  brand Brand @relation("BrandPerformanceObservations", fields: [brandId], references: [id])
+
+  @@unique([brandId, provider, subjectType, subjectId, metric, bucketStart])
+  @@index([brandId, subjectType, subjectId])
+  @@index([brandId, provider, observedAt])
+}
