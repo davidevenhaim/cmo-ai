@@ -1,0 +1,15 @@
+{
+  "name": "ai-cmo-lighthouse-runner",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Self-hosted Lighthouse audit runner. Wraps the Lighthouse CLI behind a small HTTP API so the NestJS backend never needs Chrome.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "chrome-launcher": "^1.1.2",
+    "lighthouse": "^12.2.1"
+  }
+}

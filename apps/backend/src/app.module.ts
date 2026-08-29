@@ -21,6 +21,8 @@ import { OperatorModule } from "./operator/operator.module";
 import { MeasurementModule } from "./measurement/measurement.module";
 import { SettingsModule } from "./settings/settings.module";
 import { BrowserModule } from "./browser/browser.module";
+import { WebsiteModule } from "./website/website.module";
+import { WhatsAppModule } from "./whatsapp/whatsapp.module";
 import { PrismaService } from "./prisma.service";
 
 @Module({
@@ -47,6 +49,8 @@ import { PrismaService } from "./prisma.service";
     OperatorModule,
     TelegramModule,
     BrowserModule,
+    WebsiteModule,
+    WhatsAppModule,
   ],
   providers: [PrismaService],
   exports: [PrismaService],

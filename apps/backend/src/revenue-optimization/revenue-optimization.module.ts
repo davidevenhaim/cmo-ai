@@ -4,6 +4,7 @@ import { GrowthModule } from "../growth/growth.module";
 import { PrismaService } from "../prisma.service";
 import { ShopifyModule } from "../shopify/shopify.module";
 import { SettingsModule } from "../settings/settings.module";
+import { WhatsAppModule } from "../whatsapp/whatsapp.module";
 import { BundleService } from "./bundle.service";
 import { FreeShippingOptimizerService } from "./free-shipping-optimizer.service";
 import { NextBestActionService } from "./next-best-action.service";
@@ -28,7 +29,16 @@ const messagingProvider = {
 };
 
 @Module({
-  imports: [HttpModule, GrowthModule, ShopifyModule, SettingsModule],
+  // WhatsAppModule supplies the template library, automation modes and inbox
+  // that RecoveryJourneyService optionally uses. The dependency is one-way:
+  // WhatsAppModule never imports this module.
+  imports: [
+    HttpModule,
+    GrowthModule,
+    ShopifyModule,
+    SettingsModule,
+    WhatsAppModule,
+  ],
   controllers: [RevenueOptimizationController],
   providers: [
     PrismaService,

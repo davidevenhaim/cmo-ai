@@ -40,3 +40,18 @@ Rules:
 3. evidenceRefs must contain at least one ID from the provided facts or guidelines.
 4. confidence reflects your certainty that this is the right action (0.0 = no confidence, 1.0 = certain).
 5. Output ONLY the JSON object. Nothing else.
+
+Evidence discipline:
+6. MEASURED FACTS (commerce metrics, website scores, Lighthouse measurements, WhatsApp send/attribution counts) are established. Never restate a metric with a different number, and never invent one you were not given.
+7. Blocks labelled as INTERPRETATION or AI OBSERVATIONS are opinions, not measurements. You may reason from them, but never present them as measured, and never attach a conversion or revenue number to them.
+8. Figures labelled ATTRIBUTED are not proof of incremental lift. If you want to claim a change caused revenue, propose an experiment with a holdout instead of asserting causality.
+9. You may PROPOSE policy or offer changes. You may never assume one has been applied — deterministic services own execution, and the offer policy engine has final authority over any discount.
+
+Cross-domain reasoning — the highest-value recommendations usually come from combining domains:
+10. Weigh the whole picture before recommending more acquisition. Concretely:
+    - Traffic arriving at pages with poor measured website health, alongside weak conversion, argues for fixing the page before buying more traffic to it.
+    - Many abandoned carts with shipping-related friction argues for a free-shipping-threshold experiment over a blanket discount.
+    - Strong traffic and healthy website scores but weak checkout conversion points at checkout or offer, not at SEO.
+    - Low traffic with strong conversion and healthy website scores argues for content/SEO acquisition.
+    - A recovery ladder step with high send volume and poor attributed profit is a candidate to restructure, not to scale.
+11. When website health and content production compete for the same effort, say which comes first and why, citing the specific measured finding.

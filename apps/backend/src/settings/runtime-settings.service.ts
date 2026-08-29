@@ -34,8 +34,21 @@ export class RuntimeSettingsService implements OnModuleInit {
    * Never overwrites existing persisted values.
    */
   async ensureBootstrapped(brandId: string = DEFAULT_BRAND_ID): Promise<void> {
-    const commerceBootstrap = bootstrapCommerceDefaults();
-    const revenueBootstrap = bootstrapRevenueDefaults();
+    // Bootstrap env is operator-supplied and unvalidated. Persisting an
+    // out-of-range value would make every later read fail schema validation,
+    // which bricks startup until the row is edited by hand.
+    const commerceBootstrap = this.validated(
+      CommerceSettingsSchema,
+      bootstrapCommerceDefaults(),
+      CODE_COMMERCE_DEFAULTS,
+      "commerce bootstrap env",
+    );
+    const revenueBootstrap = this.validated(
+      RevenuePolicySchema,
+      bootstrapRevenueDefaults(),
+      CODE_REVENUE_DEFAULTS,
+      "revenue bootstrap env",
+    );
 
     const existingCommerce = await this.prisma.commerceSettings.findUnique({
       where: { brandId },
@@ -229,10 +242,15 @@ export class RuntimeSettingsService implements OnModuleInit {
       where: { brandId },
     });
     if (!row) return CODE_COMMERCE_DEFAULTS;
-    return CommerceSettingsSchema.parse({
-      lowStockThreshold: row.lowStockThreshold,
-      defaultMetricsPeriodDays: row.defaultMetricsPeriodDays,
-    });
+    return this.validated(
+      CommerceSettingsSchema,
+      {
+        lowStockThreshold: row.lowStockThreshold,
+        defaultMetricsPeriodDays: row.defaultMetricsPeriodDays,
+      },
+      CODE_COMMERCE_DEFAULTS,
+      `persisted CommerceSettings for ${brandId}`,
+    );
   }
 
   private async loadRevenue(brandId: string): Promise<RevenuePolicy> {
@@ -243,17 +261,37 @@ export class RuntimeSettingsService implements OnModuleInit {
     const ladder = Array.isArray(row.recoveryLadderHours)
       ? (row.recoveryLadderHours as number[])
       : CODE_REVENUE_DEFAULTS.recoveryLadderHours;
-    return RevenuePolicySchema.parse({
-      maxDiscountPct: row.maxDiscountPct,
-      minContributionMarginPct: row.minContributionMarginPct,
-      minOrderValue: row.minOrderValue,
-      maxDiscountsPerJourney: row.maxDiscountsPerJourney,
-      minHoursBeforeDiscount: row.minHoursBeforeDiscount,
-      recoveryLadderHours: ladder,
-      winBackDays: row.winBackDays,
-      vipLtvThreshold: row.vipLtvThreshold,
-      freeShippingNearFactor: row.freeShippingNearFactor,
-    });
+    return this.validated(
+      RevenuePolicySchema,
+      {
+        maxDiscountPct: row.maxDiscountPct,
+        minContributionMarginPct: row.minContributionMarginPct,
+        minOrderValue: row.minOrderValue,
+        maxDiscountsPerJourney: row.maxDiscountsPerJourney,
+        minHoursBeforeDiscount: row.minHoursBeforeDiscount,
+        recoveryLadderHours: ladder,
+        winBackDays: row.winBackDays,
+        vipLtvThreshold: row.vipLtvThreshold,
+        freeShippingNearFactor: row.freeShippingNearFactor,
+      },
+      CODE_REVENUE_DEFAULTS,
+      `persisted RevenuePolicy for ${brandId}`,
+    );
+  }
+
+  /** Parse against the contract, falling back to safe code defaults on failure. */
+  private validated<T>(
+    schema: { safeParse: (v: unknown) => { success: boolean; data?: T } },
+    candidate: unknown,
+    fallback: T,
+    label: string,
+  ): T {
+    const parsed = schema.safeParse(candidate);
+    if (parsed.success && parsed.data !== undefined) return parsed.data;
+    this.logger.error(
+      `Invalid ${label} — falling back to safe code defaults. Fix the value and restart.`,
+    );
+    return fallback;
   }
 
   private async recordAudit(

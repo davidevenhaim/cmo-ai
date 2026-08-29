@@ -1,5 +1,16 @@
 # Self-hosted runtime (Apple Silicon M4)
 
+## Prerequisites
+
+- Docker Desktop (Apple Silicon build), running
+- Ollama on the **host**, not in a container — the brain reaches it over
+  `host.docker.internal:11434`
+
+```bash
+brew install ollama
+brew services start ollama
+```
+
 ## Default stack (always on)
 
 ```bash
@@ -8,6 +19,23 @@ cp .env.example .env
 ollama pull <model>
 docker compose up --build
 ```
+
+Reference setup on an M4 Pro / 48 GB: `OLLAMA_MODEL=qwen3:30b-a3b`
+(~18 GB resident, a CMO run completes in roughly 17 s).
+
+### LLM timeouts
+
+Two timeouts are layered and must stay ordered — the inner one has to expire
+first so the failure is reported by the brain rather than as an opaque
+Nest-side timeout:
+
+| Var                      | Hop           | Default |
+| ------------------------ | ------------- | ------- |
+| `OLLAMA_TIMEOUT_SECONDS` | brain → Ollama | 300     |
+| `BRAIN_TIMEOUT_MS`       | Nest → brain   | 360000  |
+
+The old 30 s `BRAIN_TIMEOUT_MS` is not survivable for a local model of any
+meaningful size.
 
 Services:
 

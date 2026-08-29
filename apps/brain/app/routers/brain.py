@@ -16,10 +16,17 @@ from app.schemas.operator import (
     OperatorPrioritization,
     OperatorPrioritizeRequest,
 )
+from app.schemas.website import (
+    CroReviewRequest,
+    CroReviewResult,
+    WebsiteAnalysisRequest,
+    WebsiteAnalysisResult,
+)
 from app.services.cmo_service import CmoService
 from app.services.content_service import ContentService
 from app.services.critic_service import CriticService
 from app.services.measurement_service import MeasurementService
+from app.services.website_service import WebsiteService
 from app.services.operator_service import OperatorService
 
 router = APIRouter(prefix="/brain")
@@ -28,13 +35,17 @@ _content_service = ContentService()
 _critic_service = CriticService()
 _operator_service = OperatorService()
 _measurement_service = MeasurementService()
+_website_service = WebsiteService()
 
 
 class BrainRunRequest(BaseModel):
     context: BrandContext
 
 
-@router.post("/run", response_model=CmoRunResult)
+# exclude_none: Nest validates decisionPayload with a Zod contract whose optional
+# fields accept string|undefined, not null. Pydantic would otherwise serialise
+# every unset Optional as null and fail that validation.
+@router.post("/run", response_model=CmoRunResult, response_model_exclude_none=True)
 def run_brain(request: BrainRunRequest) -> CmoRunResult:
     try:
         return _cmo_service.run(request.context)
@@ -82,5 +93,23 @@ def classify_operator_intent(
 ) -> OperatorIntentProposal:
     try:
         return _operator_service.classify_intent(request)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# The model returns interpretation only. Every fingerprint it cites is
+# re-validated against the request here and again in Nest.
+@router.post("/website/analyze", response_model=WebsiteAnalysisResult)
+def analyze_website(request: WebsiteAnalysisRequest) -> WebsiteAnalysisResult:
+    try:
+        return _website_service.analyze(request)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/website/cro-review", response_model=CroReviewResult)
+def cro_review(request: CroReviewRequest) -> CroReviewResult:
+    try:
+        return _website_service.cro_review(request)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -6,3 +6,5 @@ export * from "./content";
 export * from "./operator";
 export * from "./measurement";
 export * from "./settings";
+export * from "./website";
+export * from "./whatsapp";

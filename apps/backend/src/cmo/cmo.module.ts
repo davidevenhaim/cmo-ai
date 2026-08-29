@@ -10,6 +10,8 @@ import { ContentModule } from "../content/content.module";
 import { GrowthModule } from "../growth/growth.module";
 import { MarketIntelligenceModule } from "../market-intelligence/market-intelligence.module";
 import { RevenueOptimizationModule } from "../revenue-optimization/revenue-optimization.module";
+import { WebsiteModule } from "../website/website.module";
+import { WhatsAppModule } from "../whatsapp/whatsapp.module";
 import { PrismaService } from "../prisma.service";
 
 @Module({
@@ -23,6 +25,8 @@ import { PrismaService } from "../prisma.service";
     GrowthModule,
     MarketIntelligenceModule,
     RevenueOptimizationModule,
+    WebsiteModule,
+    WhatsAppModule,
   ],
   controllers: [CmoController],
   providers: [CmoService, PrismaService],

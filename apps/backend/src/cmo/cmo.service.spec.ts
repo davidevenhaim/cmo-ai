@@ -11,6 +11,8 @@ import { ContentGenerationService } from "../content/content-generation.service"
 import { GrowthContextService } from "../growth/growth-context.service";
 import { MarketIntelligenceContextService } from "../market-intelligence/market-intelligence-context.service";
 import { RevenueContextService } from "../revenue-optimization/revenue-context.service";
+import { WebsiteContextService } from "../website/website-context.service";
+import { WhatsAppContextService } from "../whatsapp/whatsapp-context.service";
 
 const mockBrand = {
   id: "luminesce-brand-001",
@@ -102,6 +104,8 @@ const mockContentGenerationService = { generateForBrief: jest.fn() };
 const mockGrowthContextService = { build: jest.fn() };
 const mockMarketContextService = { build: jest.fn().mockResolvedValue({}) };
 const mockRevenueContextService = { build: jest.fn().mockResolvedValue({}) };
+const mockWebsiteContextService = { build: jest.fn().mockResolvedValue({}) };
+const mockWhatsAppContextService = { build: jest.fn().mockResolvedValue({}) };
 
 describe("CmoService", () => {
   let service: CmoService;
@@ -124,6 +128,14 @@ describe("CmoService", () => {
         {
           provide: GrowthContextService,
           useValue: mockGrowthContextService,
+        },
+        {
+          provide: WebsiteContextService,
+          useValue: mockWebsiteContextService,
+        },
+        {
+          provide: WhatsAppContextService,
+          useValue: mockWhatsAppContextService,
         },
         {
           provide: MarketIntelligenceContextService,

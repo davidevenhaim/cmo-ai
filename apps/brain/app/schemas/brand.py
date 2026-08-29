@@ -3,6 +3,8 @@ from typing import Optional, List
 from datetime import datetime
 from app.schemas.commerce import CommerceContext
 from app.schemas.research import ResearchContext
+from app.schemas.website import WebsiteContext
+from app.schemas.whatsapp import WhatsAppContext
 
 
 class BrandSource(BaseModel):
@@ -105,3 +107,5 @@ class BrandContext(BaseModel):
     commerceContext: Optional[CommerceContext] = None
     researchContext: Optional[ResearchContext] = None
     growthContext: Optional[GrowthContext] = None
+    websiteContext: Optional[WebsiteContext] = None
+    whatsappContext: Optional[WhatsAppContext] = None

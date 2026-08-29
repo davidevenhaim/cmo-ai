@@ -37,6 +37,134 @@ def _build_research_section(context: BrandContext) -> str:
     return "\n".join(lines)
 
 
+def _build_website_section(context: BrandContext) -> str:
+    """Website evidence for the CMO.
+
+    Measured scores/findings and AI observations are rendered as two clearly
+    separated blocks so the model cannot present an opinion as a measurement
+    (M9.6 A3/A5).
+    """
+    wc = context.websiteContext
+    if not wc or wc.evidenceStatus in ("NOT_CONFIGURED",):
+        return ""
+    if wc.evidenceStatus == "UNAVAILABLE":
+        return (
+            "\n\n--- WEBSITE ---\n"
+            f"No website audit available: {wc.failureReason or 'no completed audit yet'}"
+        )
+
+    stale = " (STALE — last audit is over a week old)" if wc.evidenceStatus == "STALE" else ""
+    sc = wc.scores
+
+    def score(value):
+        return f"{value:.0f}" if value is not None else "n/a"
+
+    lines = [
+        f"\n\n--- WEBSITE HEALTH (measured facts){stale} ---",
+        f"Site: {wc.websiteUrl or 'unknown'} | Pages audited: {wc.pagesAudited}",
+        (
+            f"Performance: {score(sc.performance)} | SEO: {score(sc.seo)} | "
+            f"Accessibility: {score(sc.accessibility)} | "
+            f"Best Practices: {score(sc.bestPractices)}"
+        ),
+        (
+            f"Open issues — critical: {wc.openCritical}, high: {wc.openHigh}, "
+            f"medium: {wc.openMedium}, total: {wc.openTotal}"
+        ),
+    ]
+
+    if wc.topFindings:
+        lines.append("\nTop measured issues:")
+        for f in wc.topFindings[:6]:
+            lines.append(
+                f"  [{f.severity}/{f.category}] {f.title} — {f.pageUrl}\n"
+                f"    Evidence: {f.evidenceSummary}"
+            )
+
+    if wc.regressions:
+        lines.append("\nMetric changes since the previous audit:")
+        for r in wc.regressions[:5]:
+            lines.append(
+                f"  [{r.direction}] {r.metricName} on {r.pageUrl}: "
+                f"{r.previousValue:.0f} -> {r.currentValue:.0f}"
+            )
+
+    if wc.croObservations:
+        lines.append(
+            "\nAI CONVERSION OBSERVATIONS (interpretation, NOT measurements — "
+            "these are opinions from a content review and carry no measured "
+            "conversion impact):"
+        )
+        for o in wc.croObservations[:5]:
+            lines.append(
+                f"  [{o.severity}/{o.category}] {o.title} "
+                f"({o.confidence:.0%} confidence) — {o.pageUrl}"
+            )
+
+    lines.append("--- END WEBSITE ---")
+    return "\n".join(lines)
+
+
+def _build_whatsapp_section(context: BrandContext) -> str:
+    """Aggregate WhatsApp channel economics. No customer identifiers."""
+    wa = context.whatsappContext
+    if not wa or wa.evidenceStatus == "NOT_CONFIGURED":
+        return ""
+
+    cur = wa.currencyCode
+    ac = wa.abandonedCart
+    sup = wa.suppressed
+
+    lines = [
+        "\n\n--- WHATSAPP (last 30 days, aggregate) ---",
+        f"Connection: {wa.connectionStatus}",
+        (
+            f"Abandoned cart — eligible carts: {ac.eligibleCarts}, "
+            f"messages sent: {ac.messagesSent}, recovered: {ac.recovered}"
+        ),
+        (
+            f"ATTRIBUTED revenue: {cur} {ac.attributedRevenue:,.0f} | "
+            f"ATTRIBUTED profit: {cur} {ac.attributedProfit:,.0f} | "
+            f"incentive cost: {cur} {ac.incentiveCost:,.0f}"
+        ),
+        (
+            "NOTE: these figures are ATTRIBUTED, not INCREMENTAL. They credit "
+            "recovery journeys that preceded a purchase. Proving incremental "
+            "lift requires a holdout experiment."
+        ),
+        (
+            f"Suppressed — no consent: {sup.noConsent}, frequency cap: "
+            f"{sup.frequencyCap}, purchased before send: "
+            f"{sup.purchasedBeforeSend}, invalid phone: {sup.invalidPhone}, "
+            f"inventory unavailable: {sup.inventoryUnavailable}, "
+            f"other: {sup.other}"
+        ),
+    ]
+
+    if wa.ladderSteps:
+        lines.append("\nRecovery ladder by step:")
+        for st in wa.ladderSteps:
+            lines.append(
+                f"  Step {st.stepNumber} (+{st.delayHours:g}h, "
+                f"offer={st.offerType or 'none'}): {st.sent} sent, "
+                f"{st.skipped} skipped"
+            )
+
+    if wa.automations:
+        enabled = [a for a in wa.automations if a.mode != "DISABLED"]
+        lines.append(
+            "\nAutomations: "
+            + (
+                ", ".join(f"{a.type}={a.mode}" for a in enabled)
+                if enabled
+                else "all disabled"
+            )
+        )
+
+    lines.append("--- END WHATSAPP ---")
+    return "\n".join(lines)
+
+
 def _build_user_message(context: BrandContext) -> str:
     facts_text = "\n".join(
         f"  [{f.id}] ({f.category}, confidence={f.confidence:.2f}"
@@ -110,6 +238,8 @@ def _build_user_message(context: BrandContext) -> str:
             )
 
     research_section = _build_research_section(context)
+    website_section = _build_website_section(context)
+    whatsapp_section = _build_whatsapp_section(context)
 
     return (
         f"Brand: {context.brand.name}\n"
@@ -122,6 +252,8 @@ def _build_user_message(context: BrandContext) -> str:
         f"Based on this brand context, determine the single most valuable CMO action to take right now."
         f"{commerce_section}"
         f"{research_section}"
+        f"{website_section}"
+        f"{whatsapp_section}"
         f"{hint_section}"
     )
 

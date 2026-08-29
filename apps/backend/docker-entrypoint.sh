@@ -5,7 +5,7 @@ echo "[entrypoint] Syncing database schema..."
 npx prisma db push --accept-data-loss
 
 echo "[entrypoint] Running seed..."
-npx prisma db seed
+node prisma-dist/seed.js
 
 echo "[entrypoint] Starting backend..."
 exec node dist/main

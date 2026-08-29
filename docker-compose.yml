@@ -9,6 +9,7 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
@@ -36,6 +37,9 @@ services:
       - "11235:11235"
     environment:
       OPENAI_API_KEY: ""
+      # >=0.9 binds loopback-only without a credential, which makes the service
+      # unreachable from backend over the compose network.
+      CRAWL4AI_API_TOKEN: ${CRAWL4AI_API_TOKEN:-local-dev-crawl4ai-token}
     shm_size: "1g"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:11235/health"]
@@ -43,6 +47,48 @@ services:
       timeout: 10s
       retries: 5
       start_period: 40s
+
+  # Self-hosted Lighthouse. One small container (alpine + chromium) rather than
+  # putting Chrome in the backend image or reaching for a SaaS.
+  lighthouse:
+    build:
+      context: ./docker/lighthouse
+      dockerfile: Dockerfile
+    environment:
+      AUDIT_TIMEOUT_MS: ${WEBSITE_AUDIT_TIMEOUT_MS:-120000}
+    # No published port: only the backend needs it, over the compose network.
+    expose:
+      - "3010"
+    shm_size: "1g"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3010/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # --- Optional profile: whatsapp ---
+  waha:
+    profiles: ["whatsapp", "full"]
+    # WAHA publishes per-architecture tags: "latest" is amd64-only and "arm"
+    # is the arm64 build. Apple Silicon must set WAHA_IMAGE_TAG=arm.
+    image: devlikeapro/waha:${WAHA_IMAGE_TAG:-latest}
+    ports:
+      - "3006:3000"
+    environment:
+      WHATSAPP_API_KEY: ${WAHA_API_KEY:-}
+      WAHA_PRINT_QR: "false"
+      WHATSAPP_DEFAULT_ENGINE: ${WAHA_ENGINE:-WEBJS}
+      WHATSAPP_HOOK_URL: ${WAHA_HOOK_URL:-http://backend:3001/webhooks/waha}
+      WHATSAPP_HOOK_EVENTS: "message,message.ack,session.status"
+    volumes:
+      - waha_sessions:/app/.sessions
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:3000/ping || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
   browserless:
     image: ghcr.io/browserless/chromium:latest
@@ -52,7 +98,7 @@ services:
     ports:
       - "3002:3000"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/"]
+      test: ["CMD", "curl", "-f", "http://localhost:3000/pressure"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -153,6 +199,7 @@ services:
     environment:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/ai_cmo
       BRAIN_URL: http://brain:8000
+      BRAIN_TIMEOUT_MS: ${BRAIN_TIMEOUT_MS:-30000}
       NODE_ENV: development
       LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
       CLAUDE_API_KEY: ${CLAUDE_API_KEY:-}
@@ -165,8 +212,13 @@ services:
       BRAVE_SEARCH_API_KEY: ${BRAVE_SEARCH_API_KEY:-}
       CRAWL_PROVIDER: ${CRAWL_PROVIDER:-crawl4ai}
       CRAWL4AI_BASE_URL: ${CRAWL4AI_BASE_URL:-http://crawl4ai:11235}
+      CRAWL4AI_API_TOKEN: ${CRAWL4AI_API_TOKEN:-local-dev-crawl4ai-token}
+      LIGHTHOUSE_BASE_URL: ${LIGHTHOUSE_BASE_URL:-http://lighthouse:3010}
+      # Bootstrap only — the authoritative value lives in WebsiteSettings.
+      WEBSITE_URL: ${WEBSITE_URL:-}
       BROWSERLESS_URL: ${BROWSERLESS_URL:-http://browserless:3000}
       BROWSERLESS_TOKEN: ${BROWSERLESS_TOKEN:-}
+      BROWSER_ACTION_TIMEOUT_MS: ${BROWSER_ACTION_TIMEOUT_MS:-20000}
       FIRECRAWL_API_KEY: ${FIRECRAWL_API_KEY:-}
       RESEARCH_REQUEST_TIMEOUT_MS: ${RESEARCH_REQUEST_TIMEOUT_MS:-30000}
       LISTMONK_BASE_URL: ${LISTMONK_BASE_URL:-}
@@ -179,6 +231,27 @@ services:
       UMAMI_API_TOKEN: ${UMAMI_API_TOKEN:-}
       UMAMI_USE_MOCK: ${UMAMI_USE_MOCK:-}
       CHANGEDETECTION_WEBHOOK_TOKEN: ${CHANGEDETECTION_WEBHOOK_TOKEN:-}
+      GA4_PROPERTY_ID: ${GA4_PROPERTY_ID:-}
+      GA4_ACCESS_TOKEN: ${GA4_ACCESS_TOKEN:-}
+      GA4_USE_MOCK: ${GA4_USE_MOCK:-}
+      WAHA_BASE_URL: ${WAHA_BASE_URL:-}
+      WAHA_SESSION: ${WAHA_SESSION:-default}
+      WAHA_API_KEY: ${WAHA_API_KEY:-}
+      WAHA_TIMEOUT_MS: ${WAHA_TIMEOUT_MS:-15000}
+      WAHA_WEBHOOK_SECRET: ${WAHA_WEBHOOK_SECRET:-}
+      WORDPRESS_BASE_URL: ${WORDPRESS_BASE_URL:-}
+      WORDPRESS_USERNAME: ${WORDPRESS_USERNAME:-}
+      WORDPRESS_APPLICATION_PASSWORD: ${WORDPRESS_APPLICATION_PASSWORD:-}
+      POSTIZ_BASE_URL: ${POSTIZ_BASE_URL:-}
+      POSTIZ_API_KEY: ${POSTIZ_API_KEY:-}
+      GOOGLE_SEARCH_CONSOLE_SITE_URL: ${GOOGLE_SEARCH_CONSOLE_SITE_URL:-}
+      GOOGLE_SERVICE_ACCOUNT_JSON: ${GOOGLE_SERVICE_ACCOUNT_JSON:-}
+      SERPAPI_KEY: ${SERPAPI_KEY:-}
+      GOOGLE_ADS_DEVELOPER_TOKEN: ${GOOGLE_ADS_DEVELOPER_TOKEN:-}
+      GOOGLE_ADS_CLIENT_ID: ${GOOGLE_ADS_CLIENT_ID:-}
+      GOOGLE_ADS_CLIENT_SECRET: ${GOOGLE_ADS_CLIENT_SECRET:-}
+      GOOGLE_ADS_REFRESH_TOKEN: ${GOOGLE_ADS_REFRESH_TOKEN:-}
+      GOOGLE_ADS_CUSTOMER_ID: ${GOOGLE_ADS_CUSTOMER_ID:-}
       SHOPIFY_SHOP_DOMAIN: ${SHOPIFY_SHOP_DOMAIN:-}
       SHOPIFY_ACCESS_TOKEN: ${SHOPIFY_ACCESS_TOKEN:-}
       SHOPIFY_API_VERSION: ${SHOPIFY_API_VERSION:-2024-10}
@@ -203,6 +276,8 @@ services:
         condition: service_started
       browserless:
         condition: service_started
+      lighthouse:
+        condition: service_started
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
       interval: 10s
@@ -222,6 +297,7 @@ services:
       LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-}
+      OLLAMA_TIMEOUT_SECONDS: ${OLLAMA_TIMEOUT_SECONDS:-300}
       CLAUDE_API_KEY: ${CLAUDE_API_KEY:-}
       ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-4-6}
       BACKEND_URL: http://backend:3001
@@ -247,6 +323,7 @@ services:
 
 volumes:
   postgres_data:
+  waha_sessions:
   listmonk_uploads:
   umami_db:
   changedetection_data:

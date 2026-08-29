@@ -10,6 +10,8 @@ import { ContentGenerationService } from "../content/content-generation.service"
 import { GrowthContextService } from "../growth/growth-context.service";
 import { MarketIntelligenceContextService } from "../market-intelligence/market-intelligence-context.service";
 import { RevenueContextService } from "../revenue-optimization/revenue-context.service";
+import { WebsiteContextService } from "../website/website-context.service";
+import { WhatsAppContextService } from "../whatsapp/whatsapp-context.service";
 import { CmoRunResultSchema } from "@ai-cmo/contracts";
 
 @Injectable()
@@ -28,6 +30,8 @@ export class CmoService {
     private readonly growthContextService: GrowthContextService,
     private readonly marketIntelligenceContextService: MarketIntelligenceContextService,
     private readonly revenueContextService: RevenueContextService,
+    private readonly websiteContextService: WebsiteContextService,
+    private readonly whatsappContextService: WhatsAppContextService,
   ) {}
 
   async triggerRun(
@@ -42,6 +46,8 @@ export class CmoService {
       growthContext,
       marketIntelligenceContext,
       revenueContext,
+      websiteContext,
+      whatsappContext,
     ] = await Promise.all([
       this.shopifyService.getCommerceContext().catch((err) => {
         this.logger.warn(`Commerce context fetch failed: ${err.message}`);
@@ -65,6 +71,14 @@ export class CmoService {
         this.logger.warn(`Revenue context fetch failed: ${err.message}`);
         return undefined;
       }),
+      this.websiteContextService.build().catch((err) => {
+        this.logger.warn(`Website context fetch failed: ${err.message}`);
+        return undefined;
+      }),
+      this.whatsappContextService.build().catch((err) => {
+        this.logger.warn(`WhatsApp context fetch failed: ${err.message}`);
+        return undefined;
+      }),
     ]);
 
     const context = {
@@ -78,6 +92,8 @@ export class CmoService {
       growthContext,
       marketIntelligenceContext,
       revenueContext,
+      websiteContext,
+      whatsappContext,
     };
 
     const start = Date.now();

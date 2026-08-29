@@ -12,6 +12,7 @@ import { FirecrawlAdapter } from "./providers/firecrawl.adapter";
 import { BrowserCrawlAdapter } from "./providers/browser-crawl.adapter";
 import { Crawl4aiAdapter } from "./providers/crawl4ai.adapter";
 import {
+  CRAWL_PROVIDER,
   crawlProviderFactory,
   searchProviderFactory,
 } from "./providers/provider.factory";
@@ -39,6 +40,8 @@ import { PrismaService } from "../prisma.service";
     ChangedetectionIngestService,
     PrismaService,
   ],
-  exports: [ResearchService, OpportunityService],
+  // CRAWL_PROVIDER is exported so the website module can reuse the same
+  // Crawl4AI → Browserless chain rather than standing up a second crawler.
+  exports: [ResearchService, OpportunityService, CRAWL_PROVIDER],
 })
 export class ResearchModule {}

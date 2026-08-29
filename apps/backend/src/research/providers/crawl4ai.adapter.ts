@@ -31,6 +31,18 @@ export class Crawl4aiAdapter implements CrawlProvider {
       .replace(/\/$/, "");
   }
 
+  /**
+   * Crawl4AI >=0.9 only binds beyond loopback when a credential is set, and
+   * then rejects unauthenticated calls. Blank token = the older open server.
+   */
+  private get headers(): Record<string, string> {
+    const token = (this.config.get<string>("CRAWL4AI_API_TOKEN") ?? "").trim();
+    return {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    };
+  }
+
   async extract(url: string): Promise<ExtractResult> {
     if (!this.configured) {
       throw new Error("Crawl4AI not configured (CRAWL4AI_BASE_URL)");
@@ -62,7 +74,7 @@ export class Crawl4aiAdapter implements CrawlProvider {
         this.http.post(
           `${this.baseUrl}/md`,
           { url, f: "fit" },
-          { timeout, headers: { "Content-Type": "application/json" } },
+          { timeout, headers: this.headers },
         ),
       );
       const data = response.data ?? {};
@@ -97,7 +109,7 @@ export class Crawl4aiAdapter implements CrawlProvider {
             },
           },
         },
-        { timeout, headers: { "Content-Type": "application/json" } },
+        { timeout, headers: this.headers },
       ),
     );
 

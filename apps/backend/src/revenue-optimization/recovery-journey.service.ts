@@ -1,9 +1,13 @@
-import { Inject, Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
 import { PrismaService } from "../prisma.service";
 import { FrequencyCapService } from "../growth/frequency-cap.service";
 import type { MessagingProvider } from "./providers/messaging.provider";
 import { OfferPolicyEngine } from "./offer-policy-engine.service";
 import { RuntimeSettingsService } from "../settings/runtime-settings.service";
+import { WhatsAppAutomationService } from "../whatsapp/whatsapp-automation.service";
+import { WhatsAppTemplateService } from "../whatsapp/whatsapp-template.service";
+import { WhatsAppInboxService } from "../whatsapp/whatsapp-inbox.service";
+import { phoneToChatId } from "../whatsapp/waha.client";
 
 const BRAND_ID = "luminesce-brand-001";
 
@@ -27,6 +31,11 @@ export class RecoveryJourneyService {
     private readonly offerPolicy: OfferPolicyEngine,
     private readonly frequencyCaps: FrequencyCapService,
     private readonly settings: RuntimeSettingsService,
+    // M9.6: optional so the journey engine keeps working (and stays unit
+    // testable) when the WhatsApp surface is not wired in.
+    @Optional() private readonly automations?: WhatsAppAutomationService,
+    @Optional() private readonly templates?: WhatsAppTemplateService,
+    @Optional() private readonly inbox?: WhatsAppInboxService,
   ) {}
 
   private ladder(): JourneyStep[] {
@@ -212,6 +221,8 @@ export class RecoveryJourneyService {
         smsMarketingStatus: true,
         lastOrderAt: true,
         currencyCode: true,
+        // Used by the {{first_name}} template variable.
+        firstName: true,
       },
     });
 
@@ -278,8 +289,45 @@ export class RecoveryJourneyService {
     }
     const offerSuppressed = inventoryStatus === "PARTIAL_UNAVAILABLE";
 
+    // Part D: an automation is opt-in. DISABLED never sends; DRY_RUN runs the
+    // full gate chain and records what would have happened without dispatching.
+    const automation = this.automations
+      ? await this.automations.resolveMode("ABANDONED_CART")
+      : { mode: "LIVE" as const, maySend: true };
+
+    if (automation.mode === "DISABLED") {
+      await skip("AUTOMATION_DISABLED");
+      return true;
+    }
+
     const currencyCode = checkoutCurrency ?? contact.currencyCode ?? "USD";
-    const body = this._buildMessage(step, opp, currencyCode, offerSuppressed);
+    const body = await this._renderBody(
+      step,
+      opp,
+      contact,
+      currencyCode,
+      offerSuppressed,
+    );
+
+    if (!body) {
+      // A template that cannot be fully rendered is never sent half-filled.
+      await skip("TEMPLATE_INCOMPLETE");
+      return true;
+    }
+
+    if (!automation.maySend) {
+      await this.prisma.recoveryJourneyStep.update({
+        where: { id: step.id },
+        data: {
+          status: "SKIPPED",
+          skipReason: "DRY_RUN",
+          executedAt: new Date(),
+          messageBody: body,
+        },
+      });
+      return true;
+    }
+
     const result = await this.messaging.send({ to: contact.phone, body });
 
     const status = result.success
@@ -310,6 +358,31 @@ export class RecoveryJourneyService {
           metadata: { stepNumber: step.stepNumber, offerType: step.offerType },
         },
       });
+      // Surface the automated send in the WhatsApp inbox, tagged AUTOMATION so
+      // it is never mistaken for an owner reply (invariant 13).
+      if (this.inbox && step.channel === "WHATSAPP" && contact.phone) {
+        const chatId = phoneToChatId(contact.phone);
+        if (chatId) {
+          await this.inbox
+            .recordOutboundAutomation({
+              phone: contact.phone,
+              chatId,
+              body,
+              providerMessageId:
+                result.providerMessageId ?? `journey-${step.id}`,
+              origin: "AUTOMATION",
+              metadata: {
+                journeyId: step.journeyId,
+                stepNumber: step.stepNumber,
+                offerType: step.offerType,
+              },
+            })
+            .catch((err) =>
+              this.logger.warn(`Inbox mirror failed: ${err.message}`),
+            );
+        }
+      }
+
       // Record touch so frequency caps count WhatsApp sends.
       await this.prisma.campaignTouch.create({
         data: {
@@ -409,6 +482,70 @@ export class RecoveryJourneyService {
     } catch {
       return `${currencyCode} ${value.toFixed(2)}`;
     }
+  }
+
+  /**
+   * C2 — message body for a journey step.
+   *
+   * Prefers an owner-authored WhatsApp template so copy is configurable, and
+   * falls back to the built-in wording when no template library is wired in.
+   * Returns null when a template exists but cannot be fully rendered, which
+   * the caller treats as "do not send".
+   */
+  private async _renderBody(
+    step: any,
+    opp: any,
+    contact: { firstName?: string | null },
+    currencyCode: string,
+    offerSuppressed: boolean,
+  ): Promise<string | null> {
+    if (!this.templates) {
+      return this._buildMessage(step, opp, currencyCode, offerSuppressed);
+    }
+
+    // An offer step only uses the offer template when the offer still stands
+    // after the inventory re-check.
+    const wantsOffer =
+      !offerSuppressed &&
+      (step.offerType === "PERCENT_DISCOUNT" ||
+        step.offerType === "FREE_SHIPPING");
+    const key = wantsOffer
+      ? "abandoned-cart-offer"
+      : "abandoned-cart-reminder";
+
+    const template = await this.templates
+      .getByKey(key)
+      .catch(() => null);
+    if (!template || !template.active) {
+      return this._buildMessage(step, opp, currencyCode, offerSuppressed);
+    }
+
+    const productNames = Array.isArray(opp.products)
+      ? opp.products
+          .map((p: any) => String(p?.title ?? p?.name ?? "").trim())
+          .filter(Boolean)
+      : [];
+
+    const rendered = this.templates.render(template.body, {
+      first_name: contact.firstName ?? null,
+      cart_value: opp.cartValue ?? null,
+      currency: currencyCode,
+      product_names: productNames.length > 0 ? productNames : null,
+      recovery_url: opp.recoveryUrl ?? null,
+      discount_code: step.offerType === "PERCENT_DISCOUNT" ? opp.discountCode ?? null : null,
+      discount_pct:
+        step.offerType === "PERCENT_DISCOUNT" ? (step.offerValue ?? null) : null,
+    });
+
+    if (rendered.ok && rendered.body) return rendered.body;
+
+    this.logger.warn(
+      `Template "${key}" incomplete for step ${step.id} ` +
+        `(missing: ${(rendered.missing ?? []).join(", ")}); using built-in copy`,
+    );
+    // Built-in copy needs only cart value and recovery URL, so it can still go
+    // out when an optional variable like first_name is unavailable.
+    return this._buildMessage(step, opp, currencyCode, offerSuppressed);
   }
 
   private _buildMessage(

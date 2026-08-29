@@ -1,5 +1,6 @@
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
 }
 
 datasource db {
@@ -59,6 +60,15 @@ model Brand {
   commerceSettings           CommerceSettings?
   revenuePolicy              RevenuePolicy?
   settingsAuditLogs          SettingsAuditLog[]
+  websiteSettings            WebsiteSettings?
+  websiteAudits              WebsiteAudit[]               @relation("BrandWebsiteAudits")
+  websiteFindings            WebsiteFinding[]             @relation("BrandWebsiteFindings")
+  websiteRecommendations     WebsiteRecommendation[]      @relation("BrandWebsiteRecommendations")
+  whatsAppSession            WhatsAppSession?
+  whatsAppConversations      WhatsAppConversation[]       @relation("BrandWhatsAppConversations")
+  whatsAppTemplates          WhatsAppTemplate[]           @relation("BrandWhatsAppTemplates")
+  whatsAppBroadcasts         WhatsAppBroadcast[]          @relation("BrandWhatsAppBroadcasts")
+  whatsAppAutomations        WhatsAppAutomation[]         @relation("BrandWhatsAppAutomations")
 }
 
 model BrandFact {
@@ -1189,6 +1199,7 @@ model Recommendation {
   outcomeMetrics       OutcomeMetric[]
   contentBriefs        ContentBrief[]       @relation("RecommendationContentBriefs")
   revenueOpportunities RevenueOpportunity[] @relation("RecommendationRevenueOpportunities")
+  websiteRecommendations WebsiteRecommendation[] @relation("RecommendationWebsiteRecommendations")
 
   @@index([brandId, status])
   @@index([brandId, dedupeKey])
@@ -1309,4 +1320,377 @@ model SettingsAuditLog {
 
   @@index([brandId, changedAt])
   @@index([brandId, scope])
+}
+
+// ---------------------------------------------------------------------------
+// M9.6 — Website Intelligence
+//
+// Platform-neutral. Nothing here assumes Shopify (or any specific CMS): the
+// site is addressed purely by URL, and page classification is configuration,
+// not vendor detection.
+// ---------------------------------------------------------------------------
+
+// Owner-controlled website audit configuration. Business configuration lives
+// in the DB (editable from Settings), never in .env.
+model WebsiteSettings {
+  id       String  @id @default(cuid())
+  brandId  String  @unique
+  // Canonical site root, e.g. https://example.com
+  websiteUrl String?
+  // [{ url, pageType, label? }] — explicit pages the owner wants audited.
+  auditUrls  Json    @default("[]")
+  // Categories enabled for finding generation (see WebsiteFindingCategory).
+  enabledCategories Json @default("[\"PERFORMANCE\",\"SEO\",\"ACCESSIBILITY\",\"BEST_PRACTICE\",\"CONVERSION\",\"CONTENT\",\"MOBILE\",\"TRUST\",\"PRODUCT_PAGE\",\"CHECKOUT\",\"TECHNICAL\"]")
+  // MANUAL | DAILY | WEEKLY — cadence for the scheduled audit worker.
+  cadence           String  @default("MANUAL")
+  maxPages          Int     @default(10)
+  // DESKTOP | MOBILE — Lighthouse form factor.
+  formFactor        String  @default("MOBILE")
+  // Whether the bounded AI CRO review layer runs after a technical audit.
+  croReviewEnabled  Boolean @default(true)
+  auditTimeoutMs    Int     @default(120000)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  brand Brand @relation(fields: [brandId], references: [id])
+}
+
+// One audit execution across N pages.
+model WebsiteAudit {
+  id          String    @id @default(cuid())
+  brandId     String
+  // PENDING | RUNNING | COMPLETED | PARTIAL | FAILED
+  status      String    @default("PENDING")
+  trigger     String    @default("manual")
+  startedAt   DateTime  @default(now())
+  completedAt DateTime?
+  pagesPlanned  Int     @default(0)
+  pagesAudited  Int     @default(0)
+  pagesFailed   Int     @default(0)
+  // Deterministic site-level roll-up of page scores (median), never an
+  // invented single "AI score".
+  scores        Json?
+  failureReason String?
+
+  brand      Brand              @relation("BrandWebsiteAudits", fields: [brandId], references: [id])
+  pageAudits WebsitePageAudit[]
+
+  @@index([brandId, startedAt])
+}
+
+// Per-page Lighthouse result, normalized. Raw report is stored separately and
+// never forwarded to the LLM.
+model WebsitePageAudit {
+  id       String @id @default(cuid())
+  auditId  String
+  url      String
+  // HOMEPAGE | PRODUCT | COLLECTION | BLOG | BLOG_POST | CHECKOUT | CART |
+  // LANDING | POLICY | CONTACT | OTHER
+  pageType String @default("OTHER")
+
+  // Category scores, 0-100. Null when the audit failed for this page.
+  performance    Float?
+  accessibility  Float?
+  seo            Float?
+  bestPractices  Float?
+
+  // Normalized numeric metrics: { lcpMs, clsScore, tbtMs, fcpMs, siMs, ttiMs, ... }
+  metrics Json?
+  // Bounded per-audit opportunity list kept for evidence; NOT the raw report.
+  auditRefs Json?
+  // Raw Lighthouse JSON, retained for operator drill-down only.
+  rawReport Json?
+  rawBytes  Int?
+
+  // OK | FAILED | TIMEOUT | SKIPPED
+  status        String    @default("OK")
+  failureReason String?
+  fetchedAt     DateTime  @default(now())
+  durationMs    Int?
+
+  audit    WebsiteAudit     @relation(fields: [auditId], references: [id], onDelete: Cascade)
+  findings WebsiteFinding[] @relation("PageAuditFindings")
+
+  @@index([auditId])
+  @@index([url])
+}
+
+// A durable, deduplicated website issue. Survives across audits: re-detection
+// bumps lastSeenAt, absence marks it RESOLVED.
+model WebsiteFinding {
+  id      String @id @default(cuid())
+  brandId String
+
+  // sha256(pageUrl + category + ruleKey) — the dedup identity across audits.
+  fingerprint String @unique
+  // Stable machine key for the underlying rule, e.g. "lighthouse:largest-contentful-paint".
+  ruleKey     String
+
+  pageUrl  String
+  pageType String @default("OTHER")
+  // PERFORMANCE | SEO | ACCESSIBILITY | BEST_PRACTICE | CONVERSION | CONTENT |
+  // MOBILE | TRUST | PRODUCT_PAGE | CHECKOUT | TECHNICAL
+  category String
+  // INFO | LOW | MEDIUM | HIGH | CRITICAL
+  severity String
+
+  title       String
+  description String
+
+  // Bounded structured evidence. For LIGHTHOUSE findings this is measured
+  // fact; for AI_REVIEW findings it is observed page content, never a metric.
+  evidence Json?
+
+  // Deterministic metric when the finding is metric-backed.
+  metricName  String?
+  metricValue Float?
+  metricUnit  String?
+
+  // LIGHTHOUSE | CRAWLER | BROWSER | AI_REVIEW
+  source String
+  // FACT for measured technical findings, INTERPRETATION for AI review output.
+  // Guards the A3 fact/interpretation separation at the storage layer.
+  evidenceClass String @default("FACT")
+
+  // OPEN | RESOLVED | IGNORED
+  status     String    @default("OPEN")
+  detectedAt DateTime  @default(now())
+  lastSeenAt DateTime  @default(now())
+  resolvedAt DateTime?
+
+  suggestedFix String?
+  // 0-1. For LIGHTHOUSE findings this is 1 (measured); AI findings carry the
+  // model's self-reported confidence.
+  confidence Float @default(1)
+
+  firstAuditId String?
+  lastAuditId  String?
+  pageAuditId  String?
+
+  // Recorded metric value at each sighting: [{ auditId, at, value, severity }]
+  history Json @default("[]")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  brand     Brand             @relation("BrandWebsiteFindings", fields: [brandId], references: [id])
+  pageAudit WebsitePageAudit? @relation("PageAuditFindings", fields: [pageAuditId], references: [id], onDelete: SetNull)
+  recommendations WebsiteRecommendation[] @relation("WebsiteRecommendationFindings")
+
+  @@index([brandId, status, severity])
+  @@index([brandId, category])
+  @@index([brandId, pageUrl])
+}
+
+// LLM interpretation + proposed fix over one or more findings. Never a
+// substitute for the measured finding it references.
+model WebsiteRecommendation {
+  id      String @id @default(cuid())
+  brandId String
+
+  title String
+  // Why the model believes the findings matter. Explicitly an INTERPRETATION.
+  interpretation String
+  // What the model proposes doing about it.
+  proposedFix    String
+  // PERFORMANCE | SEO | ... (mirrors finding categories)
+  category String
+  // CRITICAL | HIGH | MEDIUM | LOW
+  priority String  @default("MEDIUM")
+  // Model self-reported confidence, 0-1.
+  confidence Float @default(0.5)
+  // PROPOSED | ACCEPTED | DISMISSED | DONE
+  status String @default("PROPOSED")
+
+  modelId String?
+  // Link into the M9 recommendation/measurement spine when the owner promotes it.
+  recommendationId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  brand    Brand            @relation("BrandWebsiteRecommendations", fields: [brandId], references: [id])
+  findings WebsiteFinding[] @relation("WebsiteRecommendationFindings")
+  recommendation Recommendation? @relation("RecommendationWebsiteRecommendations", fields: [recommendationId], references: [id])
+
+  @@index([brandId, status])
+}
+
+// ---------------------------------------------------------------------------
+// M9.6 — WhatsApp Operations (WAHA)
+// ---------------------------------------------------------------------------
+
+// Backend-owned WAHA session lifecycle. Credentials never leave the backend.
+model WhatsAppSession {
+  id          String @id @default(cuid())
+  brandId     String @unique
+  sessionName String @default("default")
+  // NOT_CONFIGURED | STOPPED | STARTING | SCAN_QR | WORKING | FAILED
+  status      String @default("NOT_CONFIGURED")
+  // Safe, non-secret account identifier surfaced to the operator UI.
+  meNumber    String?
+  meName      String?
+  lastSyncAt  DateTime?
+  lastQrAt    DateTime?
+  lastError   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  brand Brand @relation(fields: [brandId], references: [id])
+}
+
+model WhatsAppConversation {
+  id      String @id @default(cuid())
+  brandId String
+  // WAHA chat id, e.g. "9725xxxxxxx@c.us"
+  chatId  String
+  displayName String?
+  // Denormalised E.164-ish phone for matching against Contact.
+  phone       String?
+  contactId   String?
+  lastMessageAt      DateTime?
+  lastMessagePreview String?
+  unreadCount        Int      @default(0)
+  archived           Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  brand    Brand                @relation("BrandWhatsAppConversations", fields: [brandId], references: [id])
+  messages WhatsAppMessage[]
+
+  @@unique([brandId, chatId])
+  @@index([brandId, lastMessageAt])
+}
+
+model WhatsAppMessage {
+  id             String @id @default(cuid())
+  conversationId String
+  // WAHA message id — the dedup key for webhook retries.
+  providerMessageId String @unique
+  // INBOUND | OUTBOUND
+  direction String
+  // INBOUND | OWNER_MANUAL | AUTOMATION | BROADCAST — invariant 13: an owner's
+  // manual reply is always distinguishable from anything the system sent.
+  origin    String
+  body      String
+  // PENDING | SENT | DELIVERED | READ | FAILED | UNKNOWN
+  deliveryState String @default("UNKNOWN")
+  timestamp     DateTime @default(now())
+  // Provenance only (broadcastId / journeyStepId / automationType). Never PII.
+  metadata      Json?
+  createdAt     DateTime @default(now())
+
+  conversation WhatsAppConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, timestamp])
+}
+
+// Dedup guard for WAHA webhook delivery retries (invariant 12).
+model ProcessedWahaEvent {
+  id          String   @id
+  eventType   String?
+  processedAt DateTime @default(now())
+}
+
+model WhatsAppTemplate {
+  id      String @id @default(cuid())
+  brandId String
+  // Stable owner-facing key, unique per brand.
+  key     String
+  // ABANDONED_CART | REPLENISHMENT | WIN_BACK | VIP | BACK_IN_STOCK |
+  // ORDER_FOLLOWUP | REVIEW_REQUEST | CUSTOM
+  type    String
+  name    String
+  body    String
+  // Declared variables, validated against ALLOWED_TEMPLATE_VARIABLES on write.
+  variables Json    @default("[]")
+  active    Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  brand      Brand               @relation("BrandWhatsAppTemplates", fields: [brandId], references: [id])
+  broadcasts WhatsAppBroadcast[]
+  automations WhatsAppAutomation[]
+
+  @@unique([brandId, key])
+}
+
+model WhatsAppBroadcast {
+  id      String @id @default(cuid())
+  brandId String
+  name    String
+  segmentId  String?
+  templateId String?
+  // Frozen copy of the template body at dry-run time, so an edit to the
+  // template between approval and send cannot change what goes out.
+  renderedBody String?
+  // DRAFT | DRY_RUN | AWAITING_CONFIRMATION | SENDING | SENT | FAILED | CANCELLED
+  status String @default("DRAFT")
+  // Deterministic audience breakdown produced by the dry run.
+  dryRunResult Json?
+  dryRunAt     DateTime?
+  scheduledAt  DateTime?
+  confirmedAt  DateTime?
+  confirmedBy  String?
+  startedAt    DateTime?
+  completedAt  DateTime?
+  sentCount       Int @default(0)
+  failedCount     Int @default(0)
+  suppressedCount Int @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  brand      Brand                        @relation("BrandWhatsAppBroadcasts", fields: [brandId], references: [id])
+  template   WhatsAppTemplate?            @relation(fields: [templateId], references: [id])
+  recipients WhatsAppBroadcastRecipient[]
+
+  @@index([brandId, status])
+}
+
+model WhatsAppBroadcastRecipient {
+  id          String @id @default(cuid())
+  broadcastId String
+  contactId   String
+  // PENDING | SENDING | SENT | FAILED | SUPPRESSED
+  // SENDING is the atomic claim state: a recipient is moved out of PENDING
+  // before the network call, so a crash mid-send cannot produce a second one.
+  status     String @default("PENDING")
+  skipReason String?
+  providerMessageId String?
+  sentAt     DateTime?
+
+  broadcast WhatsAppBroadcast @relation(fields: [broadcastId], references: [id], onDelete: Cascade)
+
+  @@unique([broadcastId, contactId])
+  @@index([broadcastId, status])
+}
+
+// Owner-configurable automation binding an existing revenue flow to WhatsApp.
+model WhatsAppAutomation {
+  id      String @id @default(cuid())
+  brandId String
+  // ABANDONED_CART | REPLENISHMENT | WIN_BACK | VIP | BACK_IN_STOCK |
+  // POST_PURCHASE | REVIEW_REQUEST
+  type String
+  // DISABLED | DRY_RUN | LIVE — new automations never default to LIVE.
+  mode String @default("DISABLED")
+  channel String @default("WHATSAPP")
+  templateId String?
+  // Flow-specific timing, e.g. { ladderHours: [...] } or { delayHours: 24 }.
+  timing   Json @default("{}")
+  // Bounded audience descriptor, e.g. { segmentType: "VIP" }.
+  audience Json @default("{}")
+  // Owner intent only. OfferPolicyEngine retains final authority at send time.
+  offerPolicy Json @default("{}")
+  frequencyCapRuleId String?
+  lastRunAt    DateTime?
+  successCount Int @default(0)
+  failureCount Int @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  brand    Brand             @relation("BrandWhatsAppAutomations", fields: [brandId], references: [id])
+  template WhatsAppTemplate? @relation(fields: [templateId], references: [id])
+
+  @@unique([brandId, type])
 }
